@@ -19,7 +19,15 @@
 #include <dirent.h>
 
 #include "esp32_camera.h"
+#include "mbedtls/md.h"
+#include <random>
+#include <iomanip>
+#include <chrono>
+// 在现有的 #include 列表中添加以下头文件：
 
+#include "esp_http_client.h"  // 添加这个头文件
+#include "cJSON.h"            // 如果还没有的话也需要添加
+#include <sstream>            // 用于 std::stringstream
 // Add a simple base64_encode function declaration if not provided by any header
 std::string base64_encode(const uint8_t* data, size_t len);
 
@@ -258,6 +266,144 @@ private:
             ESP_LOGE(TAG, "Failed to open file for writing: %s", path.c_str());
         }
     }
+    // 在文件末尾添加以下实现
+
+    // 享老汇API配置
+    #define XIANGLAO_API_URL "https://sign.upcif.com/xlh/senior/queryhealthdata"
+    #define XIANGLAO_DOMAIN "xiaozhi-device.com"  // 替换为你的实际域名
+
+    // 生成流水号：YYYYMMDDHHMISS + 5位随机数
+    std::string GenerateSerialNumber() {
+        auto now = std::chrono::system_clock::now();
+        auto time_t = std::chrono::system_clock::to_time_t(now);
+        auto tm = *std::localtime(&time_t);
+        
+        // 生成5位随机数
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<> dis(10000, 99999);
+        int random_num = dis(gen);
+        
+        // 格式：YYYYMMDDHHMISS + 5位随机数（总共25位）
+        char serial[64]; // 增大缓冲区以避免截断警告
+        snprintf(serial, sizeof(serial), "%04d%02d%02d%02d%02d%02d%05d",
+                tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+                tm.tm_hour%24, tm.tm_min, tm.tm_sec, random_num);
+        
+        return std::string(serial);
+    }
+
+    // 计算SHA-256哈希值：流水号|手机号|域名
+    std::string CalculateSHA256(const std::string& serial_number, 
+                                        const std::string& mobile_phone, 
+                                        const std::string& domain) {
+        // 拼接格式：流水号|手机号|域名
+        std::string combined = serial_number + "|" + mobile_phone + "|" + domain;
+        
+        ESP_LOGI("XiangLaoHui", "SHA-256 input: %s", combined.c_str());
+        
+        unsigned char hash[32];
+        mbedtls_md_context_t ctx;
+        mbedtls_md_type_t md_type = MBEDTLS_MD_SHA256;
+        
+        mbedtls_md_init(&ctx);
+        mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(md_type), 0);
+        mbedtls_md_starts(&ctx);
+        mbedtls_md_update(&ctx, (const unsigned char*)combined.c_str(), combined.length());
+        mbedtls_md_finish(&ctx, hash);
+        mbedtls_md_free(&ctx);
+        
+        // 转换为16进制字符串（64位小写）
+        std::stringstream ss;
+        for (int i = 0; i < 32; i++) {
+            ss << std::hex << std::setw(2) << std::setfill('0') << (int)hash[i];
+        }
+        
+        std::string result = ss.str();
+        ESP_LOGI("XiangLaoHui", "SHA-256 result: %s", result.c_str());
+        return result;
+    }
+
+    // 查询享老汇健康数据
+    std::string QueryXiangLaoHuiHealthData(const std::string& mobile_phone) {
+        ESP_LOGI("XiangLaoHui", "Querying health data for mobile: %s", mobile_phone.c_str());
+        
+        // 生成流水号和nonce_str
+        std::string serial_number = GenerateSerialNumber();
+        std::string nonce_str = CalculateSHA256(serial_number, mobile_phone, XIANGLAO_DOMAIN);
+        
+        ESP_LOGI("XiangLaoHui", "Serial number: %s", serial_number.c_str());
+        ESP_LOGI("XiangLaoHui", "Nonce string: %s", nonce_str.c_str());
+        
+        // 构建请求JSON - 严格按照API规范
+        cJSON* request_json = cJSON_CreateObject();
+        cJSON_AddStringToObject(request_json, "serial_number", serial_number.c_str());
+        cJSON_AddStringToObject(request_json, "mobile_phone", mobile_phone.c_str());
+        cJSON_AddStringToObject(request_json, "nonce_str", nonce_str.c_str());
+        
+        char* json_string = cJSON_Print(request_json);
+        std::string request_body(json_string);
+        free(json_string);
+        cJSON_Delete(request_json);
+        
+        ESP_LOGI("XiangLaoHui", "Request body: %s", request_body.c_str());
+        
+        // 发送HTTP POST请求
+        esp_http_client_config_t config = {
+            .url = XIANGLAO_API_URL,
+            .method = HTTP_METHOD_POST,
+            .timeout_ms = 15000,
+        };
+        
+        esp_http_client_handle_t client = esp_http_client_init(&config);
+        esp_http_client_set_header(client, "Content-Type", "application/json;charset=utf-8");
+        esp_http_client_set_post_field(client, request_body.c_str(), request_body.length());
+        
+        esp_err_t err = esp_http_client_perform(client);
+        std::string response;
+        
+        if (err == ESP_OK) {
+            int status_code = esp_http_client_get_status_code(client);
+            ESP_LOGI("XiangLaoHui", "HTTP Status: %d", status_code);
+            
+            if (status_code == 200) {
+                int content_length = esp_http_client_get_content_length(client);
+                if (content_length > 0) {
+                    char* buffer = new char[content_length + 1];
+                    int read_len = esp_http_client_read_response(client, buffer, content_length);
+                    if (read_len > 0) {
+                        buffer[read_len] = '\0';
+                        response.assign(buffer, read_len);
+                        ESP_LOGI("XiangLaoHui", "Response: %s", response.c_str());
+                    }
+                    delete[] buffer;
+                }
+            } else {
+                ESP_LOGE("XiangLaoHui", "HTTP request failed with status: %d", status_code);
+                // 构建错误响应
+                cJSON* error_json = cJSON_CreateObject();
+                cJSON_AddStringToObject(error_json, "return_code", "FAIL");
+                cJSON_AddStringToObject(error_json, "return_msg", "HTTP Error");
+                char* error_str = cJSON_Print(error_json);
+                response = std::string(error_str);
+                free(error_str);
+                cJSON_Delete(error_json);
+            }
+        } else {
+            ESP_LOGE("XiangLaoHui", "HTTP request failed: %s", esp_err_to_name(err));
+            // 构建网络错误响应
+            cJSON* error_json = cJSON_CreateObject();
+            cJSON_AddStringToObject(error_json, "return_code", "FAIL");
+            cJSON_AddStringToObject(error_json, "return_msg", "Network Error");
+            char* error_str = cJSON_Print(error_json);
+            response = std::string(error_str);
+            free(error_str);
+            cJSON_Delete(error_json);
+        }
+        
+        esp_http_client_cleanup(client);
+        return response;
+    }
 
     void InitializeTools() {
         auto& mcp_server = McpServer::GetInstance();
@@ -294,6 +440,77 @@ private:
             SendUartMessage("d1");
             light_mode_ = LIGHT_MODE_MAX;
             return true;
+        });
+// 在 InitializeTools() 方法中添加享老汇健康数据查询工具
+
+        // 享老汇健康数据查询工具
+        mcp_server.AddTool("self.health.query_elder_health_data", "查询老人健康数据", PropertyList({
+            Property("mobile_phone", kPropertyTypeString)
+        }), [this](const PropertyList& properties) -> ReturnValue {
+            std::string mobile_phone = properties["mobile_phone"].value<std::string>();
+            if (mobile_phone.empty()) {
+                throw std::runtime_error("手机号不能为空");
+            }
+            
+            // 手机号格式验证
+            if (mobile_phone.length() != 11 || mobile_phone[0] != '1') {
+                throw std::runtime_error("手机号格式不正确，请输入11位手机号");
+            }
+            
+            std::string response = QueryXiangLaoHuiHealthData(mobile_phone);
+            
+            // 解析响应数据
+            cJSON* json = cJSON_Parse(response.c_str());
+            if (!json) {
+                ESP_LOGE("XiangLaoHui", "Failed to parse response JSON");
+                return std::string("响应数据解析失败");
+            }
+            
+            cJSON* return_code = cJSON_GetObjectItem(json, "return_code");
+            if (cJSON_IsString(return_code) && strcmp(return_code->valuestring, "SUCCESS") == 0) {
+                // 成功获取健康数据，构建友好的摘要
+                std::string health_summary = "🏥 健康数据查询成功!\n\n";
+                
+                cJSON* heart_rate = cJSON_GetObjectItem(json, "heart_rate");
+                cJSON* blood_glucose = cJSON_GetObjectItem(json, "blood_glucose");
+                cJSON* oxygen_saturation = cJSON_GetObjectItem(json, "oxygen_saturation");
+                cJSON* body_temperature = cJSON_GetObjectItem(json, "body_temperature");
+                cJSON* blood_pressure = cJSON_GetObjectItem(json, "blood_pressure");
+                cJSON* response_time = cJSON_GetObjectItem(json, "response_time");
+                
+                if (cJSON_IsString(heart_rate)) {
+                    health_summary += "❤️ 心率: " + std::string(heart_rate->valuestring) + " bpm\n";
+                }
+                if (cJSON_IsString(blood_glucose)) {
+                    health_summary += "🩸 血糖: " + std::string(blood_glucose->valuestring) + " mg/dL\n";
+                }
+                if (cJSON_IsString(oxygen_saturation)) {
+                    health_summary += "🫁 血氧: " + std::string(oxygen_saturation->valuestring) + "%\n";
+                }
+                if (cJSON_IsString(body_temperature)) {
+                    health_summary += "🌡️ 体温: " + std::string(body_temperature->valuestring) + "°C\n";
+                }
+                if (cJSON_IsString(blood_pressure)) {
+                    health_summary += "💉 血压: " + std::string(blood_pressure->valuestring) + " mmHg\n";
+                }
+                if (cJSON_IsString(response_time)) {
+                    health_summary += "⏰ 数据时间: " + std::string(response_time->valuestring);
+                }
+                
+                cJSON_Delete(json);
+                ESP_LOGI("XiangLaoHui", "Health data retrieved successfully for: %s", mobile_phone.c_str());
+                return health_summary;
+            } else {
+                // 查询失败
+                cJSON* return_msg = cJSON_GetObjectItem(json, "return_msg");
+                std::string error_msg = "❌ 查询失败";
+                if (cJSON_IsString(return_msg)) {
+                    error_msg += ": " + std::string(return_msg->valuestring);
+                }
+                cJSON_Delete(json);
+                ESP_LOGE("XiangLaoHui", "Health data query failed: %s", error_msg.c_str());
+                return error_msg;
+            }
         });
 
         mcp_server.AddTool("self.chassis.switch_light_mode", "打开灯光效果", PropertyList({
