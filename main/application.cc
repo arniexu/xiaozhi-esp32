@@ -428,6 +428,10 @@ std::string GetUtcDateString() {
     return std::string(buf);
 }
 
+// 前置声明 UrlEncode 和 BuildAliyunSignature
+std::string UrlEncode(const std::string& value);
+std::string BuildAliyunSignature(const std::string& http_method, const std::string& canonicalized_query_string);
+
 // base64编码
 std::string base64_encode(const unsigned char* data, size_t len) {
     static const char table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -447,7 +451,7 @@ std::string base64_encode(const unsigned char* data, size_t len) {
 }
 
 // 创建人脸库
-std::string CreateFaceDB(const std::string& db_name) {
+std::string Application::CreateFaceDB(const std::string& db_name) {
     std::string nonce, timestamp;
     std::ostringstream oss;
     oss << "AccessKeyId=" << UrlEncode(ALIYUN_ACCESS_KEY_ID)
@@ -603,7 +607,7 @@ std::string Application::ParseListFacesResult(const std::string& response) {
 }
 
 // 添加人脸到数据库
-std::string AddFaceToAliyunDB(const std::string& person_name, const std::string& image_base64) {
+std::string Application::AddFaceToAliyunDB(const std::string& person_name, const std::string& image_base64) {
     std::string nonce, timestamp;
     std::ostringstream oss;
     oss << "AccessKeyId=" << UrlEncode(ALIYUN_ACCESS_KEY_ID)
@@ -656,7 +660,7 @@ std::string AddFaceToAliyunDB(const std::string& person_name, const std::string&
 }
 
 // 搜索人脸（1:N比对）
-std::string SearchFaceInAliyunDB(const std::string& image_base64) {
+std::string Application::SearchFaceInAliyunDB(const std::string& image_base64) {
     std::string nonce, timestamp;
     std::ostringstream oss;
     oss << "AccessKeyId=" << UrlEncode(ALIYUN_ACCESS_KEY_ID)
@@ -710,7 +714,7 @@ std::string SearchFaceInAliyunDB(const std::string& image_base64) {
 }
 
 // 解析搜索结果，返回匹配的人名
-std::string ParseSearchFaceResult(const std::string& response) {
+std::string Application::ParseSearchFaceResult(const std::string& response) {
     ESP_LOGI("AliyunFace", "Parsing search face result...");
     cJSON* root = cJSON_Parse(response.c_str());
     if (!root) {
@@ -793,7 +797,7 @@ std::string BuildAliyunQueryString(const std::string& imgA_base64, const std::st
     timestamp = GetUtcDateString();
     std::ostringstream oss;
     oss << "AccessKeyId=" << UrlEncode(ALIYUN_ACCESS_KEY_ID)
-        << "&Action=" << ALIYUN_API_ACTION
+        << "&Action=CompareFace"
         << "&Format=json"
         << "&SignatureMethod=HMAC-SHA1"
         << "&SignatureNonce=" << nonce

@@ -20,6 +20,9 @@
 
 #include "esp32_camera.h"
 
+// Add a simple base64_encode function declaration if not provided by any header
+std::string base64_encode(const uint8_t* data, size_t len);
+
 #define TAG "esp_sparkbot"
 
 LV_FONT_DECLARE(font_puhui_20_4);
@@ -331,7 +334,8 @@ private:
             esp_camera_fb_return(fb);
             
             // 保存到阿里云人脸数据库
-            std::string response = AddFaceToAliyunDB(person_name, image_base64);
+            auto& app = Application::GetInstance();
+            std::string response = app.AddFaceToAliyunDB(person_name, image_base64);
             
             // 检查是否成功
             cJSON* root = cJSON_Parse(response.c_str());

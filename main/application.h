@@ -83,7 +83,17 @@ public:
     bool ReadAudio(std::vector<int16_t>& data, int sample_rate, int samples);
     AecMode GetAecMode() const { return aec_mode_; }
     BackgroundTask* GetBackgroundTask() const { return background_task_; }
+    // 阿里云人脸数据库相关方法
+    std::string AddFaceToAliyunDB(const std::string& person_name, const std::string& image_base64);
+    std::string ListFacesInAliyunDB();
+    std::string ParseListFacesResult(const std::string& response);
     std::string whoareyou();
+    void InitializeFaceDB();
+    
+    // 其他可能需要的方法
+    std::string CreateFaceDB(const std::string& db_name);
+    std::string SearchFaceInAliyunDB(const std::string& image_base64);
+    std::string ParseSearchFaceResult(const std::string& response);
 
 private:
     Application();
