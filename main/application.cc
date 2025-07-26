@@ -31,6 +31,9 @@
 #include <cJSON.h>
 #include <driver/gpio.h>
 #include <arpa/inet.h>
+#include <dirent.h>
+#include "esp_camera.h"
+#include <fstream>
 
 #define TAG "Application"
 
@@ -398,6 +401,239 @@ void Application::StopListening() {
         }
     });
 }
+// --- 宏定义你的key和API参数 ---
+#define ALIYUN_ACCESS_KEY_ID     "YOUR_ACCESS_KEY_ID"
+#define ALIYUN_ACCESS_KEY_SECRET "YOUR_ACCESS_KEY_SECRET"
+#define ALIYUN_API_URL           "https://facebody.cn-shanghai.aliyuncs.com"
+#define ALIYUN_API_ACTION        "CompareFaces"
+#define ALIYUN_API_VERSION       "2019-12-30"
+
+#include "mbedtls/md.h"
+#include <ctime>
+#include <sstream>
+#include <iomanip>
+#include <fstream>
+#include <dirent.h>
+#include "esp_http_client.h"
+#include "cJSON.h"
+
+// 获取UTC时间字符串
+std::string GetUtcDateString() {
+    char buf[64];
+    time_t now = time(NULL);
+    struct tm tm;
+    gmtime_r(&now, &tm);
+    strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm); // 阿里云要求ISO8601格式
+    return std::string(buf);
+}
+
+// base64编码
+std::string base64_encode(const unsigned char* data, size_t len) {
+    static const char table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string ret;
+    int val = 0, valb = -6;
+    for (size_t i = 0; i < len; ++i) {
+        val = (val << 8) + data[i];
+        valb += 8;
+        while (valb >= 0) {
+            ret.push_back(table[(val >> valb) & 0x3F]);
+            valb -= 6;
+        }
+    }
+    if (valb > -6) ret.push_back(table[((val << 8) >> (valb + 8)) & 0x3F]);
+    while (ret.size() % 4) ret.push_back('=');
+    return ret;
+}
+
+// URL编码
+std::string UrlEncode(const std::string& value) {
+    std::ostringstream escaped;
+    escaped.fill('0');
+    escaped << std::hex;
+    for (char c : value) {
+        if (isalnum((unsigned char)c) || c == '-' || c == '_' || c == '.' || c == '~') {
+            escaped << c;
+        } else {
+            escaped << '%' << std::setw(2) << int((unsigned char)c);
+        }
+    }
+    return escaped.str();
+}
+
+// HMAC-SHA1签名并base64编码
+// HMAC-SHA1签名并base64编码 (使用mbedTLS)
+std::string HmacSha1Base64(const std::string& key, const std::string& data) {
+    unsigned char result[20]; // SHA1输出长度为20字节
+    const mbedtls_md_info_t* md_info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA1);
+    if (!md_info) {
+        ESP_LOGE("AliyunFace", "mbedtls_md_info_from_type failed");
+        return "";
+    }
+    int ret = mbedtls_md_hmac(md_info,
+                              reinterpret_cast<const unsigned char*>(key.c_str()), key.length(),
+                              reinterpret_cast<const unsigned char*>(data.c_str()), data.length(),
+                              result);
+    if (ret != 0) {
+        ESP_LOGE("AliyunFace", "mbedtls_md_hmac failed: %d", ret);
+        return "";
+    }
+    return base64_encode(result, sizeof(result));
+}
+// 构造请求参数（URL编码）
+std::string BuildAliyunQueryString(const std::string& imgA_base64, const std::string& imgB_base64, std::string& nonce, std::string& timestamp) {
+    nonce = std::to_string(time(NULL));
+    timestamp = GetUtcDateString();
+    std::ostringstream oss;
+    oss << "AccessKeyId=" << UrlEncode(ALIYUN_ACCESS_KEY_ID)
+        << "&Action=" << ALIYUN_API_ACTION
+        << "&Format=json"
+        << "&SignatureMethod=HMAC-SHA1"
+        << "&SignatureNonce=" << nonce
+        << "&SignatureVersion=1.0"
+        << "&Timestamp=" << UrlEncode(timestamp)
+        << "&Version=" << ALIYUN_API_VERSION
+        << "&ImageType=BASE64"
+        << "&ImageA=" << UrlEncode(imgA_base64)
+        << "&ImageB=" << UrlEncode(imgB_base64);
+    return oss.str();
+}
+
+// 构造签名字符串（严格参考阿里云文档）
+std::string BuildAliyunSignature(const std::string& http_method, const std::string& canonicalized_query_string) {
+    std::string string_to_sign = http_method + "&%2F&" + UrlEncode(canonicalized_query_string);
+    ESP_LOGI("AliyunFace", "StringToSign: %s", string_to_sign.c_str());
+    return HmacSha1Base64(std::string(ALIYUN_ACCESS_KEY_SECRET) + "&", string_to_sign);
+}
+
+// 发送请求
+std::string SendAliyunFaceCompareRequestStrict(const std::string& imgA_base64, const std::string& imgB_base64) {
+    std::string nonce, timestamp;
+    std::string query_string = BuildAliyunQueryString(imgA_base64, imgB_base64, nonce, timestamp);
+    std::string signature = BuildAliyunSignature("POST", query_string);
+    std::string full_query = query_string + "&Signature=" + UrlEncode(signature);
+
+    ESP_LOGI("AliyunFace", "Request Query: %s", full_query.c_str());
+
+    esp_http_client_config_t config = {
+        .url = ALIYUN_API_URL,
+        .method = HTTP_METHOD_POST,
+        .timeout_ms = 10000,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    esp_http_client_set_header(client, "Content-Type", "application/x-www-form-urlencoded");
+
+    esp_http_client_set_post_field(client, full_query.c_str(), full_query.size());
+
+    esp_err_t err = esp_http_client_perform(client);
+    std::string response;
+    if (err == ESP_OK) {
+        int content_length = esp_http_client_get_content_length(client);
+        ESP_LOGI("AliyunFace", "HTTP POST success, content_length=%d", content_length);
+        if (content_length > 0) {
+            char* buffer = new char[content_length + 1];
+            int read_len = esp_http_client_read_response(client, buffer, content_length);
+            if (read_len > 0) {
+                buffer[read_len] = '\0';
+                response.assign(buffer, read_len);
+                ESP_LOGI("AliyunFace", "Response: %s", buffer);
+            }
+            delete[] buffer;
+        }
+    } else {
+        ESP_LOGE("AliyunFace", "HTTP POST failed: %s", esp_err_to_name(err));
+    }
+    esp_http_client_cleanup(client);
+    return response;
+}
+
+// 解析比对分数
+float ParseAliyunFaceCompareScore(const std::string& response) {
+    ESP_LOGI("AliyunFace", "Parsing response...");
+    cJSON* root = cJSON_Parse(response.c_str());
+    if (!root) {
+        ESP_LOGE("AliyunFace", "Failed to parse JSON response");
+        return 0.0f;
+    }
+    cJSON* data = cJSON_GetObjectItem(root, "Data");
+    float score = 0.0f;
+    if (data) {
+        cJSON* confidence = cJSON_GetObjectItem(data, "Confidence");
+        if (cJSON_IsNumber(confidence)) {
+            score = confidence->valuedouble;
+            ESP_LOGI("AliyunFace", "Face compare score: %.2f", score);
+        } else {
+            ESP_LOGE("AliyunFace", "Confidence field not found or not a number");
+        }
+    } else {
+        ESP_LOGE("AliyunFace", "Data field not found in response");
+    }
+    cJSON_Delete(root);
+    return score;
+}
+
+// 对外接口：比对两张照片，返回分数
+float AliyunFaceCompare(const std::string& imgA_base64, const std::string& imgB_base64) {
+    ESP_LOGI("AliyunFace", "Start face compare...");
+    std::string response = SendAliyunFaceCompareRequestStrict(imgA_base64, imgB_base64);
+    return ParseAliyunFaceCompareScore(response);
+}
+
+// 遍历SPIFFS照片库，与内存照片比对，返回匹配文件名
+std::string CompareCapturedFaceWithSpiffs(const std::string& captured_base64) {
+    ESP_LOGI("AliyunFace", "Start SPIFFS face compare...");
+    DIR* dir = opendir("/spiffs");
+    if (!dir) {
+        ESP_LOGE("AliyunFace", "Failed to open /spiffs directory");
+        return "";
+    }
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != nullptr) {
+        std::string filename = entry->d_name;
+        if (filename.find(".jpg") == std::string::npos && filename.find(".jpeg") == std::string::npos) continue;
+        std::string path = "/spiffs/" + filename;
+        std::ifstream file(path, std::ios::binary);
+        if (!file) {
+            ESP_LOGW("AliyunFace", "Failed to open file: %s", path.c_str());
+            continue;
+        }
+        std::vector<unsigned char> buffer(std::istreambuf_iterator<char>(file), {});
+        std::string db_base64 = base64_encode(buffer.data(), buffer.size());
+
+        ESP_LOGI("AliyunFace", "Comparing with photo: %s", filename.c_str());
+        float score = AliyunFaceCompare(captured_base64, db_base64);
+
+        if (score > 80.0f) { // 阈值可调整
+            ESP_LOGI("AliyunFace", "Matched photo: %s (score: %.2f)", filename.c_str(), score);
+            closedir(dir);
+            return filename;
+        }
+    }
+    closedir(dir);
+    ESP_LOGI("AliyunFace", "No matched photo found");
+    return "";
+}
+std::string Application::whoareyou() {
+    ESP_LOGI("AliyunFace", "Wake word detected, capturing photo...");
+    camera_fb_t* fb = esp_camera_fb_get();
+    if (!fb || !fb->buf || fb->len == 0) {
+        ESP_LOGE("AliyunFace", "Camera capture failed");
+        Alert(Lang::Strings::ERROR, "Camera capture failed", "sad", Lang::Sounds::P3_EXCLAMATION);
+        return "";
+    }
+    std::string captured_base64 = base64_encode(fb->buf, fb->len);
+    esp_camera_fb_return(fb);
+
+    std::string matched_filename = CompareCapturedFaceWithSpiffs(captured_base64);
+    if (!matched_filename.empty()) {
+        ESP_LOGI("AliyunFace", "Final matched photo: %s", matched_filename.c_str());
+        Alert(Lang::Strings::INFO, ("识别到人脸，匹配照片：" + matched_filename).c_str(), "happy", Lang::Sounds::P3_SUCCESS);
+        return matched_filename;
+    } else {
+        ESP_LOGI("AliyunFace", "No matched photo");
+        Alert(Lang::Strings::INFO, "未匹配到任何人脸照片", "sad", Lang::Sounds::P3_EXCLAMATION);
+        return "";
+    }
+}
 
 void Application::Start() {
     auto& board = Board::GetInstance();
@@ -695,6 +931,8 @@ void Application::Start() {
             } else if (device_state_ == kDeviceStateActivating) {
                 SetDeviceState(kDeviceStateIdle);
             }
+
+            std::string who = whoareyou(); // 自动拍照比对人脸
         });
     });
     wake_word_->StartDetection();

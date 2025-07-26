@@ -83,6 +83,7 @@ public:
     bool ReadAudio(std::vector<int16_t>& data, int sample_rate, int samples);
     AecMode GetAecMode() const { return aec_mode_; }
     BackgroundTask* GetBackgroundTask() const { return background_task_; }
+    std::string whoareyou();
 
 private:
     Application();

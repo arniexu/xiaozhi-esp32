@@ -7,6 +7,7 @@
 #include "config.h"
 #include "mcp_server.h"
 #include "settings.h"
+#include "esp_spiffs.h"
 
 #include <wifi_station.h>
 #include <esp_log.h>
@@ -15,6 +16,7 @@
 #include <driver/spi_common.h>
 #include <driver/uart.h>
 #include <cstring>
+#include <dirent.h>
 
 #include "esp32_camera.h"
 
@@ -53,6 +55,19 @@ private:
     Esp32Camera* camera_;
     light_mode_t light_mode_ = LIGHT_MODE_ALWAYS_ON;
 
+    void init_spiffs() {
+        esp_vfs_spiffs_conf_t conf = {
+            .base_path = "/spiffs",
+            .partition_label = NULL,
+            .max_files = 5,
+            .format_if_mount_failed = true
+        };
+        esp_err_t ret = esp_vfs_spiffs_register(&conf);
+        if (ret != ESP_OK) {
+            ESP_LOGE("SPIFFS", "Failed to mount or format filesystem");
+        }
+    }
+
     void InitializeI2c() {
         // Initialize I2C peripheral
         i2c_master_bus_config_t i2c_bus_cfg = {
@@ -90,7 +105,7 @@ private:
             app.ToggleChatState();
         });
     }
-
+#if 0
     void InitializeDisplay() {
         esp_lcd_panel_io_handle_t panel_io = nullptr;
         esp_lcd_panel_handle_t panel = nullptr;
@@ -128,7 +143,11 @@ private:
                                         .emoji_font = font_emoji_64_init(),
                                     });
     }
-
+#else
+    void InitializeDisplay() {
+        display_ = nullptr;
+    }
+#endif
     void InitializeCamera() {
         camera_config_t camera_config = {};
 
@@ -195,10 +214,46 @@ private:
         SendUartMessage("w2");
     }
 
+    //将gpio36 37 初始化成串口0 
+    void InitializeConsoleUart() {
+        uart_config_t uart_config = {
+            .baud_rate = 115200,
+            .data_bits = UART_DATA_8_BITS,
+            .parity    = UART_PARITY_DISABLE,
+            .stop_bits = UART_STOP_BITS_1,
+            .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+            .source_clk = UART_SCLK_DEFAULT,
+        };
+        int intr_alloc_flags = 0;
+
+        ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, BUF_SIZE * 2, 0, 0, NULL, intr_alloc_flags));
+        ESP_ERROR_CHECK(uart_param_config(UART_NUM_0, &uart_config));
+        //ESP_ERROR_CHECK(uart_set_pin(UART_NUM_0, GPIO_NUM_36, GPIO_NUM_37, -1, -1));
+        ESP_ERROR_CHECK(uart_set_pin(UART_NUM_0, GPIO_NUM_19, GPIO_NUM_20, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+    }
+
     void SendUartMessage(const char * command_str) {
         uint8_t len = strlen(command_str);
         uart_write_bytes(ECHO_UART_PORT_NUM, command_str, len);
         ESP_LOGI(TAG, "Sent command: %s", command_str);
+    }
+
+    void myLog(const char * command_str) {
+        uint8_t len = strlen(command_str);
+        uart_write_bytes(UART_NUM_0, command_str, len);
+        ESP_LOGI(TAG, "Sent command: %s", command_str);
+    }
+
+    void SavePhotoToSpiffs(const uint8_t* buf, size_t len, const std::string& filename) {
+        std::string path = "/spiffs/" + filename;
+        FILE* f = fopen(path.c_str(), "wb");
+        if (f) {
+            fwrite(buf, 1, len, f);
+            fclose(f);
+            ESP_LOGI(TAG, "Saved photo: %s", path.c_str());
+        } else {
+            ESP_LOGE(TAG, "Failed to open file for writing: %s", path.c_str());
+        }
     }
 
     void InitializeTools() {
@@ -253,6 +308,24 @@ private:
             }
             throw std::runtime_error("Invalid light mode");
         });
+        
+        mcp_server.AddTool("self.camera.capture_and_save", "拍照并保存到SPIFFS", PropertyList({
+            Property("filename", kPropertyTypeString)
+        }), [this](const PropertyList& properties) -> ReturnValue {
+            if (!camera_) {
+                throw std::runtime_error("Camera not initialized");
+            }
+            std::string filename = properties["filename"].value<std::string>();
+            if (filename.empty()) {
+                throw std::runtime_error("Filename is empty");
+            }
+            bool ok = camera_->CaptureAndSaveToSpiffs(filename);
+            if (ok) {
+                return true;
+            } else {
+                throw std::runtime_error("Failed to capture or save photo");
+            }
+        });
 
         mcp_server.AddTool("self.camera.set_camera_flipped", "翻转摄像头图像方向", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
             Settings settings("sparkbot", true);
@@ -266,6 +339,40 @@ private:
             
             return true;
         });
+
+        mcp_server.AddTool("self.camera.who_are_you", "判断当前对话是谁（人脸比对）", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
+            auto& app = Application::GetInstance();
+            std::string name = app.whoareyou();
+            if (!name.empty()) {
+                return name;
+            } else {
+                return std::string("unknown");
+            }
+        });
+
+        mcp_server.AddTool("self.camera.list_photos", "获取SPIFFS照片列表", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
+            std::vector<std::string> photo_list;
+            DIR* dir = opendir("/spiffs");
+            if (dir) {
+                struct dirent* entry;
+                while ((entry = readdir(dir)) != nullptr) {
+                    std::string filename = entry->d_name;
+                    if (filename.find(".jpg") != std::string::npos || filename.find(".jpeg") != std::string::npos) {
+                        photo_list.push_back(filename);
+                    }
+                }
+                closedir(dir);
+            }
+            // Join filenames into a comma-separated string
+            std::string result;
+            for (size_t i = 0; i < photo_list.size(); ++i) {
+                result += photo_list[i];
+                if (i != photo_list.size() - 1) {
+                    result += ",";
+                }
+            }
+            return result;
+        });
     }
 
 public:
@@ -276,8 +383,11 @@ public:
         InitializeButtons();
         InitializeCamera();
         InitializeEchoUart();
+        InitializeConsoleUart();
+        init_spiffs();
+        // 打印输出一些内容测试uart0
         InitializeTools();
-        GetBacklight()->RestoreBrightness();
+        //GetBacklight()->RestoreBrightness();
     }
 
     virtual AudioCodec* GetAudioCodec() override {
@@ -290,11 +400,16 @@ public:
     virtual Display* GetDisplay() override {
         return display_;
     }
-
+#if 0
     virtual Backlight* GetBacklight() override {
         static PwmBacklight backlight(DISPLAY_BACKLIGHT_PIN, DISPLAY_BACKLIGHT_OUTPUT_INVERT);
         return &backlight;
     }
+#else
+    virtual Backlight* GetBacklight() override {    
+        return nullptr;
+    }
+#endif
 
     virtual Camera* GetCamera() override {
         return camera_;

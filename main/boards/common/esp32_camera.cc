@@ -126,6 +126,32 @@ bool Esp32Camera::Capture() {
     }
     return true;
 }
+bool Esp32Camera::CaptureAndSaveToSpiffs(const std::string& filename) {
+    // 拍照
+    if (fb_ != nullptr) {
+        esp_camera_fb_return(fb_);
+        fb_ = nullptr;
+    }
+    fb_ = esp_camera_fb_get();
+    if (fb_ == nullptr || fb_->buf == nullptr || fb_->len == 0) {
+        ESP_LOGE(TAG, "Camera capture failed");
+        return false;
+    }
+
+    // 保存到 SPIFFS
+    std::string path = "/spiffs/" + filename;
+    FILE* f = fopen(path.c_str(), "wb");
+    if (f) {
+        fwrite(fb_->buf, 1, fb_->len, f);
+        fclose(f);
+        ESP_LOGI(TAG, "Saved photo to SPIFFS: %s", path.c_str());
+        return true;
+    } else {
+        ESP_LOGE(TAG, "Failed to open file for writing: %s", path.c_str());
+        return false;
+    }
+}
+
 bool Esp32Camera::SetHMirror(bool enabled) {
     sensor_t *s = esp_camera_sensor_get();
     if (s == nullptr) {
