@@ -402,11 +402,12 @@ void Application::StopListening() {
     });
 }
 // --- 宏定义你的key和API参数 ---
+// --- 宏定义你的key和API参数 ---
 #define ALIYUN_ACCESS_KEY_ID     "YOUR_ACCESS_KEY_ID"
 #define ALIYUN_ACCESS_KEY_SECRET "YOUR_ACCESS_KEY_SECRET"
 #define ALIYUN_API_URL           "https://facebody.cn-shanghai.aliyuncs.com"
-#define ALIYUN_API_ACTION        "CompareFaces"
 #define ALIYUN_API_VERSION       "2019-12-30"
+#define ALIYUN_FACE_DB_NAME      "xiaozhi_face_db"  // 人脸库名称
 
 #include "mbedtls/md.h"
 #include <ctime>
@@ -443,6 +444,313 @@ std::string base64_encode(const unsigned char* data, size_t len) {
     if (valb > -6) ret.push_back(table[((val << 8) >> (valb + 8)) & 0x3F]);
     while (ret.size() % 4) ret.push_back('=');
     return ret;
+}
+
+// 创建人脸库
+std::string CreateFaceDB(const std::string& db_name) {
+    std::string nonce, timestamp;
+    std::ostringstream oss;
+    oss << "AccessKeyId=" << UrlEncode(ALIYUN_ACCESS_KEY_ID)
+        << "&Action=CreateFaceDb"
+        << "&Format=json"
+        << "&SignatureMethod=HMAC-SHA1"
+        << "&SignatureNonce=" << (nonce = std::to_string(time(NULL)))
+        << "&SignatureVersion=1.0"
+        << "&Timestamp=" << UrlEncode(GetUtcDateString())
+        << "&Version=" << ALIYUN_API_VERSION
+        << "&Name=" << UrlEncode(db_name);
+    
+    std::string query_string = oss.str();
+    std::string signature = BuildAliyunSignature("POST", query_string);
+    std::string full_query = query_string + "&Signature=" + UrlEncode(signature);
+
+    esp_http_client_config_t config = {
+        .url = ALIYUN_API_URL,
+        .method = HTTP_METHOD_POST,
+        .timeout_ms = 10000,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    esp_http_client_set_header(client, "Content-Type", "application/x-www-form-urlencoded");
+    esp_http_client_set_post_field(client, full_query.c_str(), full_query.size());
+
+    esp_err_t err = esp_http_client_perform(client);
+    std::string response;
+    if (err == ESP_OK) {
+        int content_length = esp_http_client_get_content_length(client);
+        if (content_length > 0) {
+            char* buffer = new char[content_length + 1];
+            int read_len = esp_http_client_read_response(client, buffer, content_length);
+            if (read_len > 0) {
+                buffer[read_len] = '\0';
+                response.assign(buffer, read_len);
+                ESP_LOGI("AliyunFace", "CreateFaceDB Response: %s", buffer);
+            }
+            delete[] buffer;
+        }
+    }
+    esp_http_client_cleanup(client);
+    return response;
+}
+
+// 在现有的阿里云相关函数后添加以下新函数
+
+// 获取人脸库中的所有人员列表
+std::string Application::ListFacesInAliyunDB() {
+    std::string nonce, timestamp;
+    std::ostringstream oss;
+    oss << "AccessKeyId=" << UrlEncode(ALIYUN_ACCESS_KEY_ID)
+        << "&Action=ListFaces"
+        << "&Format=json"
+        << "&SignatureMethod=HMAC-SHA1"
+        << "&SignatureNonce=" << (nonce = std::to_string(time(NULL)))
+        << "&SignatureVersion=1.0"
+        << "&Timestamp=" << UrlEncode(GetUtcDateString())
+        << "&Version=" << ALIYUN_API_VERSION
+        << "&DbName=" << UrlEncode(ALIYUN_FACE_DB_NAME)
+        << "&Limit=100"  // 最多返回100个人员
+        << "&Offset=0";  // 从第0个开始
+    
+    std::string query_string = oss.str();
+    std::string signature = BuildAliyunSignature("POST", query_string);
+    std::string full_query = query_string + "&Signature=" + UrlEncode(signature);
+
+    ESP_LOGI("AliyunFace", "Listing faces in DB...");
+
+    esp_http_client_config_t config = {
+        .url = ALIYUN_API_URL,
+        .method = HTTP_METHOD_POST,
+        .timeout_ms = 15000,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    esp_http_client_set_header(client, "Content-Type", "application/x-www-form-urlencoded");
+    esp_http_client_set_post_field(client, full_query.c_str(), full_query.size());
+
+    esp_err_t err = esp_http_client_perform(client);
+    std::string response;
+    if (err == ESP_OK) {
+        int content_length = esp_http_client_get_content_length(client);
+        if (content_length > 0) {
+            char* buffer = new char[content_length + 1];
+            int read_len = esp_http_client_read_response(client, buffer, content_length);
+            if (read_len > 0) {
+                buffer[read_len] = '\0';
+                response.assign(buffer, read_len);
+                ESP_LOGI("AliyunFace", "ListFaces Response: %s", buffer);
+            }
+            delete[] buffer;
+        }
+    } else {
+        ESP_LOGE("AliyunFace", "ListFaces HTTP POST failed: %s", esp_err_to_name(err));
+    }
+    esp_http_client_cleanup(client);
+    return response;
+}
+
+// 解析ListFaces结果，返回逗号分隔的人员名单
+std::string Application::ParseListFacesResult(const std::string& response) {
+    ESP_LOGI("AliyunFace", "Parsing list faces result...");
+    cJSON* root = cJSON_Parse(response.c_str());
+    if (!root) {
+        ESP_LOGE("AliyunFace", "Failed to parse JSON response");
+        return "";
+    }
+    
+    cJSON* data = cJSON_GetObjectItem(root, "Data");
+    if (!data) {
+        ESP_LOGE("AliyunFace", "Data field not found in response");
+        cJSON_Delete(root);
+        return "";
+    }
+    
+    cJSON* faces = cJSON_GetObjectItem(data, "Faces");
+    if (!cJSON_IsArray(faces)) {
+        ESP_LOGI("AliyunFace", "No faces found in database");
+        cJSON_Delete(root);
+        return "";
+    }
+    
+    std::vector<std::string> person_names;
+    int faces_count = cJSON_GetArraySize(faces);
+    
+    for (int i = 0; i < faces_count; i++) {
+        cJSON* face = cJSON_GetArrayItem(faces, i);
+        if (face) {
+            cJSON* entity_id = cJSON_GetObjectItem(face, "EntityId");
+            if (cJSON_IsString(entity_id)) {
+                std::string person_name = entity_id->valuestring;
+                // 避免重复添加同一个人
+                if (std::find(person_names.begin(), person_names.end(), person_name) == person_names.end()) {
+                    person_names.push_back(person_name);
+                    ESP_LOGI("AliyunFace", "Found person: %s", person_name.c_str());
+                }
+            }
+        }
+    }
+    
+    cJSON_Delete(root);
+    
+    // 将人员名单转换为逗号分隔的字符串
+    std::string result;
+    for (size_t i = 0; i < person_names.size(); ++i) {
+        result += person_names[i];
+        if (i != person_names.size() - 1) {
+            result += ",";
+        }
+    }
+    
+    ESP_LOGI("AliyunFace", "Total unique persons found: %zu", person_names.size());
+    return result;
+}
+
+// 添加人脸到数据库
+std::string AddFaceToAliyunDB(const std::string& person_name, const std::string& image_base64) {
+    std::string nonce, timestamp;
+    std::ostringstream oss;
+    oss << "AccessKeyId=" << UrlEncode(ALIYUN_ACCESS_KEY_ID)
+        << "&Action=AddFace"
+        << "&Format=json"
+        << "&SignatureMethod=HMAC-SHA1"
+        << "&SignatureNonce=" << (nonce = std::to_string(time(NULL)))
+        << "&SignatureVersion=1.0"
+        << "&Timestamp=" << UrlEncode(GetUtcDateString())
+        << "&Version=" << ALIYUN_API_VERSION
+        << "&DbName=" << UrlEncode(ALIYUN_FACE_DB_NAME)
+        << "&EntityId=" << UrlEncode(person_name)
+        << "&ImageType=BASE64"
+        << "&ImageData=" << UrlEncode(image_base64);
+    
+    std::string query_string = oss.str();
+    std::string signature = BuildAliyunSignature("POST", query_string);
+    std::string full_query = query_string + "&Signature=" + UrlEncode(signature);
+
+    ESP_LOGI("AliyunFace", "Adding face to DB for person: %s", person_name.c_str());
+
+    esp_http_client_config_t config = {
+        .url = ALIYUN_API_URL,
+        .method = HTTP_METHOD_POST,
+        .timeout_ms = 15000,  // 增加超时时间
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    esp_http_client_set_header(client, "Content-Type", "application/x-www-form-urlencoded");
+    esp_http_client_set_post_field(client, full_query.c_str(), full_query.size());
+
+    esp_err_t err = esp_http_client_perform(client);
+    std::string response;
+    if (err == ESP_OK) {
+        int content_length = esp_http_client_get_content_length(client);
+        if (content_length > 0) {
+            char* buffer = new char[content_length + 1];
+            int read_len = esp_http_client_read_response(client, buffer, content_length);
+            if (read_len > 0) {
+                buffer[read_len] = '\0';
+                response.assign(buffer, read_len);
+                ESP_LOGI("AliyunFace", "AddFace Response: %s", buffer);
+            }
+            delete[] buffer;
+        }
+    } else {
+        ESP_LOGE("AliyunFace", "AddFace HTTP POST failed: %s", esp_err_to_name(err));
+    }
+    esp_http_client_cleanup(client);
+    return response;
+}
+
+// 搜索人脸（1:N比对）
+std::string SearchFaceInAliyunDB(const std::string& image_base64) {
+    std::string nonce, timestamp;
+    std::ostringstream oss;
+    oss << "AccessKeyId=" << UrlEncode(ALIYUN_ACCESS_KEY_ID)
+        << "&Action=SearchFace"
+        << "&Format=json"
+        << "&SignatureMethod=HMAC-SHA1"
+        << "&SignatureNonce=" << (nonce = std::to_string(time(NULL)))
+        << "&SignatureVersion=1.0"
+        << "&Timestamp=" << UrlEncode(GetUtcDateString())
+        << "&Version=" << ALIYUN_API_VERSION
+        << "&DbName=" << UrlEncode(ALIYUN_FACE_DB_NAME)
+        << "&ImageType=BASE64"
+        << "&ImageData=" << UrlEncode(image_base64)
+        << "&Limit=5"  // 返回最多5个匹配结果
+        << "&MaxFaceNum=1";  // 图片中最多识别1个人脸
+    
+    std::string query_string = oss.str();
+    std::string signature = BuildAliyunSignature("POST", query_string);
+    std::string full_query = query_string + "&Signature=" + UrlEncode(signature);
+
+    ESP_LOGI("AliyunFace", "Searching face in DB...");
+
+    esp_http_client_config_t config = {
+        .url = ALIYUN_API_URL,
+        .method = HTTP_METHOD_POST,
+        .timeout_ms = 15000,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    esp_http_client_set_header(client, "Content-Type", "application/x-www-form-urlencoded");
+    esp_http_client_set_post_field(client, full_query.c_str(), full_query.size());
+
+    esp_err_t err = esp_http_client_perform(client);
+    std::string response;
+    if (err == ESP_OK) {
+        int content_length = esp_http_client_get_content_length(client);
+        if (content_length > 0) {
+            char* buffer = new char[content_length + 1];
+            int read_len = esp_http_client_read_response(client, buffer, content_length);
+            if (read_len > 0) {
+                buffer[read_len] = '\0';
+                response.assign(buffer, read_len);
+                ESP_LOGI("AliyunFace", "SearchFace Response: %s", buffer);
+            }
+            delete[] buffer;
+        }
+    } else {
+        ESP_LOGE("AliyunFace", "SearchFace HTTP POST failed: %s", esp_err_to_name(err));
+    }
+    esp_http_client_cleanup(client);
+    return response;
+}
+
+// 解析搜索结果，返回匹配的人名
+std::string ParseSearchFaceResult(const std::string& response) {
+    ESP_LOGI("AliyunFace", "Parsing search face result...");
+    cJSON* root = cJSON_Parse(response.c_str());
+    if (!root) {
+        ESP_LOGE("AliyunFace", "Failed to parse JSON response");
+        return "";
+    }
+    
+    cJSON* data = cJSON_GetObjectItem(root, "Data");
+    if (!data) {
+        ESP_LOGE("AliyunFace", "Data field not found in response");
+        cJSON_Delete(root);
+        return "";
+    }
+    
+    cJSON* match_list = cJSON_GetObjectItem(data, "MatchList");
+    if (!cJSON_IsArray(match_list) || cJSON_GetArraySize(match_list) == 0) {
+        ESP_LOGI("AliyunFace", "No matches found");
+        cJSON_Delete(root);
+        return "";
+    }
+    
+    // 获取第一个匹配结果
+    cJSON* first_match = cJSON_GetArrayItem(match_list, 0);
+    if (first_match) {
+        cJSON* entity_id = cJSON_GetObjectItem(first_match, "EntityId");
+        cJSON* similarity = cJSON_GetObjectItem(first_match, "Similarity");
+        
+        if (cJSON_IsString(entity_id) && cJSON_IsNumber(similarity)) {
+            float score = similarity->valuedouble;
+            if (score > 80.0f) {  // 相似度阈值
+                std::string person_name = entity_id->valuestring;
+                ESP_LOGI("AliyunFace", "Matched person: %s (similarity: %.2f)", person_name.c_str(), score);
+                cJSON_Delete(root);
+                return person_name;
+            }
+        }
+    }
+    
+    cJSON_Delete(root);
+    return "";
 }
 
 // URL编码
@@ -613,7 +921,7 @@ std::string CompareCapturedFaceWithSpiffs(const std::string& captured_base64) {
     return "";
 }
 std::string Application::whoareyou() {
-    ESP_LOGI("AliyunFace", "Wake word detected, capturing photo...");
+    ESP_LOGI("AliyunFace", "Capturing photo for face recognition...");
     camera_fb_t* fb = esp_camera_fb_get();
     if (!fb || !fb->buf || fb->len == 0) {
         ESP_LOGE("AliyunFace", "Camera capture failed");
@@ -623,18 +931,20 @@ std::string Application::whoareyou() {
     std::string captured_base64 = base64_encode(fb->buf, fb->len);
     esp_camera_fb_return(fb);
 
-    std::string matched_filename = CompareCapturedFaceWithSpiffs(captured_base64);
-    if (!matched_filename.empty()) {
-        ESP_LOGI("AliyunFace", "Final matched photo: %s", matched_filename.c_str());
-        Alert(Lang::Strings::INFO, ("识别到人脸，匹配照片：" + matched_filename).c_str(), "happy", Lang::Sounds::P3_SUCCESS);
-        return matched_filename;
+    // 在阿里云人脸数据库中搜索
+    std::string response = SearchFaceInAliyunDB(captured_base64);
+    std::string matched_person = ParseSearchFaceResult(response);
+    
+    if (!matched_person.empty()) {
+        ESP_LOGI("AliyunFace", "Final matched person: %s", matched_person.c_str());
+        Alert(Lang::Strings::INFO, ("识别到人脸：" + matched_person).c_str(), "happy", Lang::Sounds::P3_SUCCESS);
+        return matched_person;
     } else {
-        ESP_LOGI("AliyunFace", "No matched photo");
-        Alert(Lang::Strings::INFO, "未匹配到任何人脸照片", "sad", Lang::Sounds::P3_EXCLAMATION);
+        ESP_LOGI("AliyunFace", "No matched person");
+        Alert(Lang::Strings::INFO, "未识别到已知人脸", "sad", Lang::Sounds::P3_EXCLAMATION);
         return "";
     }
 }
-
 void Application::Start() {
     auto& board = Board::GetInstance();
     SetDeviceState(kDeviceStateStarting);

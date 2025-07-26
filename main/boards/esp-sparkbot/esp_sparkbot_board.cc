@@ -215,22 +215,22 @@ private:
     }
 
     //将gpio36 37 初始化成串口0 
-    void InitializeConsoleUart() {
-        uart_config_t uart_config = {
-            .baud_rate = 115200,
-            .data_bits = UART_DATA_8_BITS,
-            .parity    = UART_PARITY_DISABLE,
-            .stop_bits = UART_STOP_BITS_1,
-            .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-            .source_clk = UART_SCLK_DEFAULT,
-        };
-        int intr_alloc_flags = 0;
+    // void InitializeConsoleUart() {
+    //     uart_config_t uart_config = {
+    //         .baud_rate = 115200,
+    //         .data_bits = UART_DATA_8_BITS,
+    //         .parity    = UART_PARITY_DISABLE,
+    //         .stop_bits = UART_STOP_BITS_1,
+    //         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+    //         .source_clk = UART_SCLK_DEFAULT,
+    //     };
+    //     int intr_alloc_flags = 0;
 
-        ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, BUF_SIZE * 2, 0, 0, NULL, intr_alloc_flags));
-        ESP_ERROR_CHECK(uart_param_config(UART_NUM_0, &uart_config));
-        //ESP_ERROR_CHECK(uart_set_pin(UART_NUM_0, GPIO_NUM_36, GPIO_NUM_37, -1, -1));
-        ESP_ERROR_CHECK(uart_set_pin(UART_NUM_0, GPIO_NUM_19, GPIO_NUM_20, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
-    }
+    //     ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, BUF_SIZE * 2, 0, 0, NULL, intr_alloc_flags));
+    //     ESP_ERROR_CHECK(uart_param_config(UART_NUM_0, &uart_config));
+    //     //ESP_ERROR_CHECK(uart_set_pin(UART_NUM_0, GPIO_NUM_36, GPIO_NUM_37, -1, -1));
+    //     ESP_ERROR_CHECK(uart_set_pin(UART_NUM_0, GPIO_NUM_19, GPIO_NUM_20, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+    // }
 
     void SendUartMessage(const char * command_str) {
         uint8_t len = strlen(command_str);
@@ -238,11 +238,11 @@ private:
         ESP_LOGI(TAG, "Sent command: %s", command_str);
     }
 
-    void myLog(const char * command_str) {
-        uint8_t len = strlen(command_str);
-        uart_write_bytes(UART_NUM_0, command_str, len);
-        ESP_LOGI(TAG, "Sent command: %s", command_str);
-    }
+    // void myLog(const char * command_str) {
+    //     uint8_t len = strlen(command_str);
+    //     uart_write_bytes(UART_NUM_0, command_str, len);
+    //     ESP_LOGI(TAG, "Sent command: %s", command_str);
+    // }
 
     void SavePhotoToSpiffs(const uint8_t* buf, size_t len, const std::string& filename) {
         std::string path = "/spiffs/" + filename;
@@ -309,21 +309,62 @@ private:
             throw std::runtime_error("Invalid light mode");
         });
         
-        mcp_server.AddTool("self.camera.capture_and_save", "拍照并保存到SPIFFS", PropertyList({
-            Property("filename", kPropertyTypeString)
+        mcp_server.AddTool("self.camera.user_register", "注册新用户", PropertyList({
+            Property("person_name", kPropertyTypeString)
         }), [this](const PropertyList& properties) -> ReturnValue {
             if (!camera_) {
                 throw std::runtime_error("Camera not initialized");
             }
-            std::string filename = properties["filename"].value<std::string>();
-            if (filename.empty()) {
-                throw std::runtime_error("Filename is empty");
+            std::string person_name = properties["person_name"].value<std::string>();
+            if (person_name.empty()) {
+                throw std::runtime_error("Person name is empty");
             }
-            bool ok = camera_->CaptureAndSaveToSpiffs(filename);
-            if (ok) {
+            
+            // 拍照
+            camera_fb_t* fb = esp_camera_fb_get();
+            if (!fb || !fb->buf || fb->len == 0) {
+                esp_camera_fb_return(fb);
+                throw std::runtime_error("Camera capture failed");
+            }
+            
+            std::string image_base64 = base64_encode(fb->buf, fb->len);
+            esp_camera_fb_return(fb);
+            
+            // 保存到阿里云人脸数据库
+            std::string response = AddFaceToAliyunDB(person_name, image_base64);
+            
+            // 检查是否成功
+            cJSON* root = cJSON_Parse(response.c_str());
+            bool success = false;
+            if (root) {
+                cJSON* code = cJSON_GetObjectItem(root, "Code");
+                if (cJSON_IsString(code) && strcmp(code->valuestring, "OK") == 0) {
+                    success = true;
+                }
+                cJSON_Delete(root);
+            }
+            
+            if (success) {
+                ESP_LOGI("Camera", "Face saved to Aliyun DB for person: %s", person_name.c_str());
                 return true;
             } else {
-                throw std::runtime_error("Failed to capture or save photo");
+                ESP_LOGE("Camera", "Failed to save face to Aliyun DB: %s", response.c_str());
+                throw std::runtime_error("Failed to save face to Aliyun DB");
+            }
+        });
+
+        // 替换现有的 "self.camera.all_users_in_medical_platform" 工具
+        mcp_server.AddTool("self.camera.all_users_in_medical_platform", "获取医疗平台所有用户名", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
+            auto& app = Application::GetInstance();
+            std::string response = app.ListFacesInAliyunDB();
+            std::string user_list = app.ParseListFacesResult(response);
+            
+            if (!user_list.empty()) {
+                ESP_LOGI("Camera", "Retrieved user list: %s", user_list.c_str());
+                return user_list;
+            } else {
+                ESP_LOGI("Camera", "No users found in medical platform");
+                return std::string("暂无注册用户");
             }
         });
 
@@ -340,7 +381,7 @@ private:
             return true;
         });
 
-        mcp_server.AddTool("self.camera.who_are_you", "判断当前对话是谁（人脸比对）", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
+        mcp_server.AddTool("self.camera.get_user_name", "获取当前用户名", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
             auto& app = Application::GetInstance();
             std::string name = app.whoareyou();
             if (!name.empty()) {
@@ -350,29 +391,6 @@ private:
             }
         });
 
-        mcp_server.AddTool("self.camera.list_photos", "获取SPIFFS照片列表", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
-            std::vector<std::string> photo_list;
-            DIR* dir = opendir("/spiffs");
-            if (dir) {
-                struct dirent* entry;
-                while ((entry = readdir(dir)) != nullptr) {
-                    std::string filename = entry->d_name;
-                    if (filename.find(".jpg") != std::string::npos || filename.find(".jpeg") != std::string::npos) {
-                        photo_list.push_back(filename);
-                    }
-                }
-                closedir(dir);
-            }
-            // Join filenames into a comma-separated string
-            std::string result;
-            for (size_t i = 0; i < photo_list.size(); ++i) {
-                result += photo_list[i];
-                if (i != photo_list.size() - 1) {
-                    result += ",";
-                }
-            }
-            return result;
-        });
     }
 
 public:
@@ -383,7 +401,7 @@ public:
         InitializeButtons();
         InitializeCamera();
         InitializeEchoUart();
-        InitializeConsoleUart();
+        //InitializeConsoleUart();
         init_spiffs();
         // 打印输出一些内容测试uart0
         InitializeTools();
