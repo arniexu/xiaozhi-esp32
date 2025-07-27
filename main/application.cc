@@ -429,8 +429,20 @@ std::string GetUtcDateString() {
 }
 
 // 前置声明 UrlEncode 和 BuildAliyunSignature
-std::string UrlEncode(const std::string& value);
-std::string BuildAliyunSignature(const std::string& http_method, const std::string& canonicalized_query_string);
+// URL编码
+std::string UrlEncode(const std::string& value) {
+    std::ostringstream escaped;
+    escaped.fill('0');
+    escaped << std::hex;
+    for (char c : value) {
+        if (isalnum((unsigned char)c) || c == '-' || c == '_' || c == '.' || c == '~') {
+            escaped << c;
+        } else {
+            escaped << '%' << std::setw(2) << int((unsigned char)c);
+        }
+    }
+    return escaped.str();
+}
 
 // base64编码
 std::string base64_encode(const unsigned char* data, size_t len) {
@@ -448,6 +460,33 @@ std::string base64_encode(const unsigned char* data, size_t len) {
     if (valb > -6) ret.push_back(table[((val << 8) >> (valb + 8)) & 0x3F]);
     while (ret.size() % 4) ret.push_back('=');
     return ret;
+}
+
+// HMAC-SHA1签名并base64编码
+// HMAC-SHA1签名并base64编码 (使用mbedTLS)
+std::string HmacSha1Base64(const std::string& key, const std::string& data) {
+    unsigned char result[20]; // SHA1输出长度为20字节
+    const mbedtls_md_info_t* md_info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA1);
+    if (!md_info) {
+        ESP_LOGE("AliyunFace", "mbedtls_md_info_from_type failed");
+        return "";
+    }
+    int ret = mbedtls_md_hmac(md_info,
+                              reinterpret_cast<const unsigned char*>(key.c_str()), key.length(),
+                              reinterpret_cast<const unsigned char*>(data.c_str()), data.length(),
+                              result);
+    if (ret != 0) {
+        ESP_LOGE("AliyunFace", "mbedtls_md_hmac failed: %d", ret);
+        return "";
+    }
+    return base64_encode(result, sizeof(result));
+}
+
+// 构造签名字符串（严格参考阿里云文档）
+std::string BuildAliyunSignature(const std::string& http_method, const std::string& canonicalized_query_string) {
+    std::string string_to_sign = http_method + "&%2F&" + UrlEncode(canonicalized_query_string);
+    ESP_LOGI("AliyunFace", "StringToSign: %s", string_to_sign.c_str());
+    return HmacSha1Base64(std::string(ALIYUN_ACCESS_KEY_SECRET) + "&", string_to_sign);
 }
 
 // 创建人脸库
@@ -757,40 +796,6 @@ std::string Application::ParseSearchFaceResult(const std::string& response) {
     return "";
 }
 
-// URL编码
-std::string UrlEncode(const std::string& value) {
-    std::ostringstream escaped;
-    escaped.fill('0');
-    escaped << std::hex;
-    for (char c : value) {
-        if (isalnum((unsigned char)c) || c == '-' || c == '_' || c == '.' || c == '~') {
-            escaped << c;
-        } else {
-            escaped << '%' << std::setw(2) << int((unsigned char)c);
-        }
-    }
-    return escaped.str();
-}
-
-// HMAC-SHA1签名并base64编码
-// HMAC-SHA1签名并base64编码 (使用mbedTLS)
-std::string HmacSha1Base64(const std::string& key, const std::string& data) {
-    unsigned char result[20]; // SHA1输出长度为20字节
-    const mbedtls_md_info_t* md_info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA1);
-    if (!md_info) {
-        ESP_LOGE("AliyunFace", "mbedtls_md_info_from_type failed");
-        return "";
-    }
-    int ret = mbedtls_md_hmac(md_info,
-                              reinterpret_cast<const unsigned char*>(key.c_str()), key.length(),
-                              reinterpret_cast<const unsigned char*>(data.c_str()), data.length(),
-                              result);
-    if (ret != 0) {
-        ESP_LOGE("AliyunFace", "mbedtls_md_hmac failed: %d", ret);
-        return "";
-    }
-    return base64_encode(result, sizeof(result));
-}
 // 构造请求参数（URL编码）
 std::string BuildAliyunQueryString(const std::string& imgA_base64, const std::string& imgB_base64, std::string& nonce, std::string& timestamp) {
     nonce = std::to_string(time(NULL));
@@ -808,13 +813,6 @@ std::string BuildAliyunQueryString(const std::string& imgA_base64, const std::st
         << "&ImageA=" << UrlEncode(imgA_base64)
         << "&ImageB=" << UrlEncode(imgB_base64);
     return oss.str();
-}
-
-// 构造签名字符串（严格参考阿里云文档）
-std::string BuildAliyunSignature(const std::string& http_method, const std::string& canonicalized_query_string) {
-    std::string string_to_sign = http_method + "&%2F&" + UrlEncode(canonicalized_query_string);
-    ESP_LOGI("AliyunFace", "StringToSign: %s", string_to_sign.c_str());
-    return HmacSha1Base64(std::string(ALIYUN_ACCESS_KEY_SECRET) + "&", string_to_sign);
 }
 
 // 发送请求
@@ -890,40 +888,40 @@ float AliyunFaceCompare(const std::string& imgA_base64, const std::string& imgB_
     return ParseAliyunFaceCompareScore(response);
 }
 
-// 遍历SPIFFS照片库，与内存照片比对，返回匹配文件名
-std::string CompareCapturedFaceWithSpiffs(const std::string& captured_base64) {
-    ESP_LOGI("AliyunFace", "Start SPIFFS face compare...");
-    DIR* dir = opendir("/spiffs");
-    if (!dir) {
-        ESP_LOGE("AliyunFace", "Failed to open /spiffs directory");
-        return "";
-    }
-    struct dirent* entry;
-    while ((entry = readdir(dir)) != nullptr) {
-        std::string filename = entry->d_name;
-        if (filename.find(".jpg") == std::string::npos && filename.find(".jpeg") == std::string::npos) continue;
-        std::string path = "/spiffs/" + filename;
-        std::ifstream file(path, std::ios::binary);
-        if (!file) {
-            ESP_LOGW("AliyunFace", "Failed to open file: %s", path.c_str());
-            continue;
-        }
-        std::vector<unsigned char> buffer(std::istreambuf_iterator<char>(file), {});
-        std::string db_base64 = base64_encode(buffer.data(), buffer.size());
+// // 遍历SPIFFS照片库，与内存照片比对，返回匹配文件名
+// std::string CompareCapturedFaceWithSpiffs(const std::string& captured_base64) {
+//     ESP_LOGI("AliyunFace", "Start SPIFFS face compare...");
+//     DIR* dir = opendir("/spiffs");
+//     if (!dir) {
+//         ESP_LOGE("AliyunFace", "Failed to open /spiffs directory");
+//         return "";
+//     }
+//     struct dirent* entry;
+//     while ((entry = readdir(dir)) != nullptr) {
+//         std::string filename = entry->d_name;
+//         if (filename.find(".jpg") == std::string::npos && filename.find(".jpeg") == std::string::npos) continue;
+//         std::string path = "/spiffs/" + filename;
+//         std::ifstream file(path, std::ios::binary);
+//         if (!file) {
+//             ESP_LOGW("AliyunFace", "Failed to open file: %s", path.c_str());
+//             continue;
+//         }
+//         std::vector<unsigned char> buffer(std::istreambuf_iterator<char>(file), {});
+//         std::string db_base64 = base64_encode(buffer.data(), buffer.size());
 
-        ESP_LOGI("AliyunFace", "Comparing with photo: %s", filename.c_str());
-        float score = AliyunFaceCompare(captured_base64, db_base64);
+//         ESP_LOGI("AliyunFace", "Comparing with photo: %s", filename.c_str());
+//         float score = AliyunFaceCompare(captured_base64, db_base64);
 
-        if (score > 80.0f) { // 阈值可调整
-            ESP_LOGI("AliyunFace", "Matched photo: %s (score: %.2f)", filename.c_str(), score);
-            closedir(dir);
-            return filename;
-        }
-    }
-    closedir(dir);
-    ESP_LOGI("AliyunFace", "No matched photo found");
-    return "";
-}
+//         if (score > 80.0f) { // 阈值可调整
+//             ESP_LOGI("AliyunFace", "Matched photo: %s (score: %.2f)", filename.c_str(), score);
+//             closedir(dir);
+//             return filename;
+//         }
+//     }
+//     closedir(dir);
+//     ESP_LOGI("AliyunFace", "No matched photo found");
+//     return "";
+// }
 std::string Application::whoareyou() {
     ESP_LOGI("AliyunFace", "Capturing photo for face recognition...");
     camera_fb_t* fb = esp_camera_fb_get();
