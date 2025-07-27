@@ -53,6 +53,7 @@ static const char* const STATE_STRINGS[] = {
     "invalid_state"
 };
 
+#if 1
 static const char *aliyun_root_cert_pem = 
 "-----BEGIN CERTIFICATE-----\n"
 "MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw\n"
@@ -85,7 +86,7 @@ static const char *aliyun_root_cert_pem =
 "mRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d\n"
 "emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=\n"
 "-----END CERTIFICATE-----\n";
-
+#endif
 Application::Application() {
     event_group_ = xEventGroupCreate();
     background_task_ = new BackgroundTask(4096 * 7);
@@ -556,7 +557,12 @@ std::string Application::CreateFaceDB(const std::string& db_name) {
     config.url = ALIYUN_API_URL;
     config.method = HTTP_METHOD_POST;
     config.timeout_ms = 10000;
+    #if 1
     config.cert_pem = aliyun_root_cert_pem;                    // 添加这行
+    #else
+    config.skip_cert_common_name_check = true;
+    #endif
+    config.use_global_ca_store = true; // 使用全局CA存储
     config.transport_type = HTTP_TRANSPORT_OVER_SSL; // 添加这行
     esp_http_client_handle_t client = esp_http_client_init(&config);
     esp_http_client_set_header(client, "Content-Type", "application/x-www-form-urlencoded");
@@ -608,7 +614,12 @@ std::string Application::ListFacesInAliyunDB() {
     config.url = ALIYUN_API_URL;
     config.method = HTTP_METHOD_POST;
     config.timeout_ms = 15000;
+    #if 1
     config.cert_pem = aliyun_root_cert_pem;                    // 添加这行
+    #else
+    config.use_global_ca_store = true; // 如果没有证书，可以使用全局CA存储
+    #endif
+    config.skip_cert_common_name_check = true;
     config.transport_type = HTTP_TRANSPORT_OVER_SSL; // 添加这行
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
@@ -719,7 +730,12 @@ std::string Application::AddFaceToAliyunDB(const std::string& person_name, const
     config.url = ALIYUN_API_URL;
     config.method = HTTP_METHOD_POST;
     config.timeout_ms = 15000;
+    #if 1
     config.cert_pem = aliyun_root_cert_pem;                    // 添加这行
+    #else
+    config.use_global_ca_store = true; // 如果没有证书，可以使用全局CA存储
+    #endif
+    config.skip_cert_common_name_check = true;
     config.transport_type = HTTP_TRANSPORT_OVER_SSL; // 添加这行
     esp_http_client_handle_t client = esp_http_client_init(&config);
     esp_http_client_set_header(client, "Content-Type", "application/x-www-form-urlencoded");
@@ -774,8 +790,12 @@ std::string Application::SearchFaceInAliyunDB(const std::string& image_base64) {
     config.url = ALIYUN_API_URL;
     config.method = HTTP_METHOD_POST;
     config.timeout_ms = 15000;
-    //config.cert_pem = aliyun_root_cert_pem;                    // 添加这行
-    config.skip_cert_common_name_check = true; // 如果没有证书，可以跳过证书检查    
+    #if 1
+    config.cert_pem = aliyun_root_cert_pem;                    // 添加这行
+    #else
+    config.skip_cert_common_name_check = true;
+    #endif
+    config.skip_cert_common_name_check = true; // 如果没有证书，可以跳过证书检查
     config.transport_type = HTTP_TRANSPORT_OVER_SSL; // 添加这行
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
@@ -879,7 +899,12 @@ std::string SendAliyunFaceCompareRequestStrict(const std::string& imgA_base64, c
     config.url = ALIYUN_API_URL;
     config.method = HTTP_METHOD_POST;
     config.timeout_ms = 10000;
+    #if 1
     config.cert_pem = aliyun_root_cert_pem;                    // 添加这行
+    #else
+    config.use_global_ca_store = true; // 如果没有证书，可以使用全局CA存储
+    #endif
+    config.skip_cert_common_name_check = true;
     config.transport_type = HTTP_TRANSPORT_OVER_SSL; // 添加这行    
     esp_http_client_handle_t client = esp_http_client_init(&config);
     esp_http_client_set_header(client, "Content-Type", "application/x-www-form-urlencoded");
