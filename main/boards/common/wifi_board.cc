@@ -88,6 +88,7 @@ void WifiBoard::StartNetwork() {
     auto& wifi_station = WifiStation::GetInstance();
     wifi_station.OnScanBegin([this]() {
         auto display = Board::GetInstance().GetDisplay();
+        if(display)
         display->ShowNotification(Lang::Strings::SCANNING_WIFI, 30000);
     });
     wifi_station.OnConnect([this](const std::string& ssid) {
@@ -95,12 +96,14 @@ void WifiBoard::StartNetwork() {
         std::string notification = Lang::Strings::CONNECT_TO;
         notification += ssid;
         notification += "...";
+        if(display)
         display->ShowNotification(notification.c_str(), 30000);
     });
     wifi_station.OnConnected([this](const std::string& ssid) {
         auto display = Board::GetInstance().GetDisplay();
         std::string notification = Lang::Strings::CONNECTED_TO;
         notification += ssid;
+        if(display)
         display->ShowNotification(notification.c_str(), 30000);
     });
     wifi_station.Start();
@@ -183,7 +186,9 @@ void WifiBoard::ResetWifiConfiguration() {
         Settings settings("wifi", true);
         settings.SetInt("force_ap", 1);
     }
-    GetDisplay()->ShowNotification(Lang::Strings::ENTERING_WIFI_CONFIG_MODE);
+    const auto& display = GetDisplay();
+    if(display)
+    display->ShowNotification(Lang::Strings::ENTERING_WIFI_CONFIG_MODE);
     vTaskDelay(pdMS_TO_TICKS(1000));
     // Reboot the device
     esp_restart();
@@ -238,7 +243,6 @@ std::string WifiBoard::GetDeviceStatusJson() {
         cJSON_AddStringToObject(screen, "theme", display->GetTheme().c_str());
     }
     cJSON_AddItemToObject(root, "screen", screen);
-
     // Battery
     int battery_level = 0;
     bool charging = false;

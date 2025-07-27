@@ -53,6 +53,39 @@ static const char* const STATE_STRINGS[] = {
     "invalid_state"
 };
 
+static const char *aliyun_root_cert_pem = 
+"-----BEGIN CERTIFICATE-----\n"
+"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\n"
+"-----END CERTIFICATE-----\n";
+
 Application::Application() {
     event_group_ = xEventGroupCreate();
     background_task_ = new BackgroundTask(4096 * 7);
@@ -111,6 +144,7 @@ void Application::CheckNewVersion(Ota& ota) {
     while (true) {
         SetDeviceState(kDeviceStateActivating);
         auto display = Board::GetInstance().GetDisplay();
+        if(display)
         display->SetStatus(Lang::Strings::CHECKING_NEW_VERSION);
 
         if (!ota.CheckVersion()) {
@@ -143,9 +177,10 @@ void Application::CheckNewVersion(Ota& ota) {
             vTaskDelay(pdMS_TO_TICKS(3000));
 
             SetDeviceState(kDeviceStateUpgrading);
-            
+            if(display)
             display->SetIcon(FONT_AWESOME_DOWNLOAD);
             std::string message = std::string(Lang::Strings::NEW_VERSION) + ota.GetFirmwareVersion();
+            if(display)
             display->SetChatMessage("system", message.c_str());
 
             auto& board = Board::GetInstance();
@@ -167,10 +202,12 @@ void Application::CheckNewVersion(Ota& ota) {
             ota.StartUpgrade([display](int progress, size_t speed) {
                 char buffer[64];
                 snprintf(buffer, sizeof(buffer), "%d%% %uKB/s", progress, speed / 1024);
+                if(display)
                 display->SetChatMessage("system", buffer);
             });
 
             // If upgrade success, the device will reboot and never reach here
+            if(display)
             display->SetStatus(Lang::Strings::UPGRADE_FAILED);
             ESP_LOGI(TAG, "Firmware upgrade failed...");
             vTaskDelay(pdMS_TO_TICKS(3000));
@@ -186,6 +223,7 @@ void Application::CheckNewVersion(Ota& ota) {
             break;
         }
 
+        if(display)
         display->SetStatus(Lang::Strings::ACTIVATION);
         // Activation code is shown to the user and waiting for the user to input
         if (ota.HasActivationCode()) {
@@ -244,9 +282,12 @@ void Application::ShowActivationCode(const std::string& code, const std::string&
 void Application::Alert(const char* status, const char* message, const char* emotion, const std::string_view& sound) {
     ESP_LOGW(TAG, "Alert %s: %s [%s]", status, message, emotion);
     auto display = Board::GetInstance().GetDisplay();
+    if(display)
+    {
     display->SetStatus(status);
     display->SetEmotion(emotion);
     display->SetChatMessage("system", message);
+    }
     if (!sound.empty()) {
         ResetDecoder();
         PlaySound(sound);
@@ -256,9 +297,12 @@ void Application::Alert(const char* status, const char* message, const char* emo
 void Application::DismissAlert() {
     if (device_state_ == kDeviceStateIdle) {
         auto display = Board::GetInstance().GetDisplay();
+        if(display)
+        {
         display->SetStatus(Lang::Strings::STANDBY);
         display->SetEmotion("neutral");
         display->SetChatMessage("system", "");
+        }
     }
 }
 
@@ -403,8 +447,8 @@ void Application::StopListening() {
 }
 // --- 宏定义你的key和API参数 ---
 // --- 宏定义你的key和API参数 ---
-#define ALIYUN_ACCESS_KEY_ID     "YOUR_ACCESS_KEY_ID"
-#define ALIYUN_ACCESS_KEY_SECRET "YOUR_ACCESS_KEY_SECRET"
+#define ALIYUN_ACCESS_KEY_ID     "LTAI5tHx6bCU4c5BfddCUrjs"
+#define ALIYUN_ACCESS_KEY_SECRET "ccdBxeEbJkQb1mVttumrUzEF3klAJz"
 #define ALIYUN_API_URL           "https://facebody.cn-shanghai.aliyuncs.com"
 #define ALIYUN_API_VERSION       "2019-12-30"
 #define ALIYUN_FACE_DB_NAME      "xiaozhi_face_db"  // 人脸库名称
@@ -485,7 +529,7 @@ std::string HmacSha1Base64(const std::string& key, const std::string& data) {
 // 构造签名字符串（严格参考阿里云文档）
 std::string BuildAliyunSignature(const std::string& http_method, const std::string& canonicalized_query_string) {
     std::string string_to_sign = http_method + "&%2F&" + UrlEncode(canonicalized_query_string);
-    ESP_LOGI("AliyunFace", "StringToSign: %s", string_to_sign.c_str());
+    //ESP_LOGI("AliyunFace", "StringToSign: %s", string_to_sign.c_str());
     return HmacSha1Base64(std::string(ALIYUN_ACCESS_KEY_SECRET) + "&", string_to_sign);
 }
 
@@ -507,11 +551,13 @@ std::string Application::CreateFaceDB(const std::string& db_name) {
     std::string signature = BuildAliyunSignature("POST", query_string);
     std::string full_query = query_string + "&Signature=" + UrlEncode(signature);
 
-    esp_http_client_config_t config = {
-        .url = ALIYUN_API_URL,
-        .method = HTTP_METHOD_POST,
-        .timeout_ms = 10000,
-    };
+
+    esp_http_client_config_t config = {};
+    config.url = ALIYUN_API_URL;
+    config.method = HTTP_METHOD_POST;
+    config.timeout_ms = 10000;
+    config.cert_pem = aliyun_root_cert_pem;                    // 添加这行
+    config.transport_type = HTTP_TRANSPORT_OVER_SSL; // 添加这行
     esp_http_client_handle_t client = esp_http_client_init(&config);
     esp_http_client_set_header(client, "Content-Type", "application/x-www-form-urlencoded");
     esp_http_client_set_post_field(client, full_query.c_str(), full_query.size());
@@ -558,12 +604,13 @@ std::string Application::ListFacesInAliyunDB() {
     std::string full_query = query_string + "&Signature=" + UrlEncode(signature);
 
     ESP_LOGI("AliyunFace", "Listing faces in DB...");
+    esp_http_client_config_t config = {};
+    config.url = ALIYUN_API_URL;
+    config.method = HTTP_METHOD_POST;
+    config.timeout_ms = 15000;
+    config.cert_pem = aliyun_root_cert_pem;                    // 添加这行
+    config.transport_type = HTTP_TRANSPORT_OVER_SSL; // 添加这行
 
-    esp_http_client_config_t config = {
-        .url = ALIYUN_API_URL,
-        .method = HTTP_METHOD_POST,
-        .timeout_ms = 15000,
-    };
     esp_http_client_handle_t client = esp_http_client_init(&config);
     esp_http_client_set_header(client, "Content-Type", "application/x-www-form-urlencoded");
     esp_http_client_set_post_field(client, full_query.c_str(), full_query.size());
@@ -668,11 +715,12 @@ std::string Application::AddFaceToAliyunDB(const std::string& person_name, const
 
     ESP_LOGI("AliyunFace", "Adding face to DB for person: %s", person_name.c_str());
 
-    esp_http_client_config_t config = {
-        .url = ALIYUN_API_URL,
-        .method = HTTP_METHOD_POST,
-        .timeout_ms = 15000,  // 增加超时时间
-    };
+    esp_http_client_config_t config = {};
+    config.url = ALIYUN_API_URL;
+    config.method = HTTP_METHOD_POST;
+    config.timeout_ms = 15000;
+    config.cert_pem = aliyun_root_cert_pem;                    // 添加这行
+    config.transport_type = HTTP_TRANSPORT_OVER_SSL; // 添加这行
     esp_http_client_handle_t client = esp_http_client_init(&config);
     esp_http_client_set_header(client, "Content-Type", "application/x-www-form-urlencoded");
     esp_http_client_set_post_field(client, full_query.c_str(), full_query.size());
@@ -722,11 +770,14 @@ std::string Application::SearchFaceInAliyunDB(const std::string& image_base64) {
 
     ESP_LOGI("AliyunFace", "Searching face in DB...");
 
-    esp_http_client_config_t config = {
-        .url = ALIYUN_API_URL,
-        .method = HTTP_METHOD_POST,
-        .timeout_ms = 15000,
-    };
+    esp_http_client_config_t config = {};
+    config.url = ALIYUN_API_URL;
+    config.method = HTTP_METHOD_POST;
+    config.timeout_ms = 15000;
+    //config.cert_pem = aliyun_root_cert_pem;                    // 添加这行
+    config.skip_cert_common_name_check = true; // 如果没有证书，可以跳过证书检查    
+    config.transport_type = HTTP_TRANSPORT_OVER_SSL; // 添加这行
+
     esp_http_client_handle_t client = esp_http_client_init(&config);
     esp_http_client_set_header(client, "Content-Type", "application/x-www-form-urlencoded");
     esp_http_client_set_post_field(client, full_query.c_str(), full_query.size());
@@ -824,11 +875,12 @@ std::string SendAliyunFaceCompareRequestStrict(const std::string& imgA_base64, c
 
     ESP_LOGI("AliyunFace", "Request Query: %s", full_query.c_str());
 
-    esp_http_client_config_t config = {
-        .url = ALIYUN_API_URL,
-        .method = HTTP_METHOD_POST,
-        .timeout_ms = 10000,
-    };
+    esp_http_client_config_t config = {};
+    config.url = ALIYUN_API_URL;
+    config.method = HTTP_METHOD_POST;
+    config.timeout_ms = 10000;
+    config.cert_pem = aliyun_root_cert_pem;                    // 添加这行
+    config.transport_type = HTTP_TRANSPORT_OVER_SSL; // 添加这行    
     esp_http_client_handle_t client = esp_http_client_init(&config);
     esp_http_client_set_header(client, "Content-Type", "application/x-www-form-urlencoded");
 
@@ -999,6 +1051,7 @@ void Application::Start() {
     board.StartNetwork();
 
     // Update the status bar immediately to show the network state
+    if(display)
     display->UpdateStatusBar(true);
 
     // Check for new firmware version or get the MQTT broker address
@@ -1006,6 +1059,7 @@ void Application::Start() {
     CheckNewVersion(ota);
 
     // Initialize the protocol
+    if(display)
     display->SetStatus(Lang::Strings::LOADING_PROTOCOL);
 
     // Add MCP common tools before initializing the protocol
@@ -1052,6 +1106,7 @@ void Application::Start() {
         board.SetPowerSaveMode(true);
         Schedule([this]() {
             auto display = Board::GetInstance().GetDisplay();
+            if(display)
             display->SetChatMessage("system", "");
             SetDeviceState(kDeviceStateIdle);
         });
@@ -1084,6 +1139,7 @@ void Application::Start() {
                 if (cJSON_IsString(text)) {
                     ESP_LOGI(TAG, "<< %s", text->valuestring);
                     Schedule([this, display, message = std::string(text->valuestring)]() {
+                        if(display)
                         display->SetChatMessage("assistant", message.c_str());
                     });
                 }
@@ -1093,6 +1149,7 @@ void Application::Start() {
             if (cJSON_IsString(text)) {
                 ESP_LOGI(TAG, ">> %s", text->valuestring);
                 Schedule([this, display, message = std::string(text->valuestring)]() {
+                    if(display)
                     display->SetChatMessage("user", message.c_str());
                 });
             }
@@ -1100,6 +1157,7 @@ void Application::Start() {
             auto emotion = cJSON_GetObjectItem(root, "emotion");
             if (cJSON_IsString(emotion)) {
                 Schedule([this, display, emotion_str = std::string(emotion->valuestring)]() {
+                                            if(display)
                     display->SetEmotion(emotion_str.c_str());
                 });
             }
@@ -1256,8 +1314,11 @@ void Application::Start() {
     has_server_time_ = ota.HasServerTime();
     if (protocol_started) {
         std::string message = std::string(Lang::Strings::VERSION) + ota.GetCurrentVersion();
+        if(display)
+        {
         display->ShowNotification(message.c_str());
         display->SetChatMessage("system", "");
+        }
         // Play the success sound to indicate the device is ready
         ResetDecoder();
         PlaySound(Lang::Sounds::P3_SUCCESS);
@@ -1274,6 +1335,7 @@ void Application::OnClockTimer() {
     clock_ticks_++;
 
     auto display = Board::GetInstance().GetDisplay();
+    if(display)
     display->UpdateStatusBar();
 
     // Print the debug info every 10 seconds
@@ -1290,7 +1352,9 @@ void Application::OnClockTimer() {
                     time_t now = time(NULL);
                     char time_str[64];
                     strftime(time_str, sizeof(time_str), "%H:%M  ", localtime(&now));
-                    Board::GetInstance().GetDisplay()->SetStatus(time_str);
+                    const auto& display = Board::GetInstance().GetDisplay();
+                    if(display)
+                    display->SetStatus(time_str);
                 });
             }
         }
@@ -1532,20 +1596,26 @@ void Application::SetDeviceState(DeviceState state) {
     switch (state) {
         case kDeviceStateUnknown:
         case kDeviceStateIdle:
+            if(display){
             display->SetStatus(Lang::Strings::STANDBY);
             display->SetEmotion("neutral");
+            }
             audio_processor_->Stop();
             wake_word_->StartDetection();
             break;
         case kDeviceStateConnecting:
+            if (display) {
             display->SetStatus(Lang::Strings::CONNECTING);
             display->SetEmotion("neutral");
             display->SetChatMessage("system", "");
+            }
             timestamp_queue_.clear();
             break;
         case kDeviceStateListening:
+            if (display) {
             display->SetStatus(Lang::Strings::LISTENING);
             display->SetEmotion("neutral");
+            }
             // Update the IoT states before sending the start listening command
 #if CONFIG_IOT_PROTOCOL_XIAOZHI
             UpdateIotStates();
@@ -1567,8 +1637,8 @@ void Application::SetDeviceState(DeviceState state) {
             }
             break;
         case kDeviceStateSpeaking:
+            if (display)
             display->SetStatus(Lang::Strings::SPEAKING);
-
             if (listening_mode_ != kListeningModeRealtime) {
                 audio_processor_->Stop();
                 // Only AFE wake word can be detected in speaking mode
@@ -1676,14 +1746,17 @@ void Application::SetAecMode(AecMode mode) {
         switch (aec_mode_) {
         case kAecOff:
             audio_processor_->EnableDeviceAec(false);
+            if (display)
             display->ShowNotification(Lang::Strings::RTC_MODE_OFF);
             break;
         case kAecOnServerSide:
             audio_processor_->EnableDeviceAec(false);
+            if(display)
             display->ShowNotification(Lang::Strings::RTC_MODE_ON);
             break;
         case kAecOnDeviceSide:
             audio_processor_->EnableDeviceAec(true);
+            if(display)
             display->ShowNotification(Lang::Strings::RTC_MODE_ON);
             break;
         }
