@@ -66,18 +66,18 @@ private:
     Esp32Camera* camera_;
     light_mode_t light_mode_ = LIGHT_MODE_ALWAYS_ON;
 
-    void init_spiffs() {
-        esp_vfs_spiffs_conf_t conf = {
-            .base_path = "/spiffs",
-            .partition_label = NULL,
-            .max_files = 5,
-            .format_if_mount_failed = true
-        };
-        esp_err_t ret = esp_vfs_spiffs_register(&conf);
-        if (ret != ESP_OK) {
-            ESP_LOGE("SPIFFS", "Failed to mount or format filesystem");
-        }
-    }
+    // void init_spiffs() {
+    //     esp_vfs_spiffs_conf_t conf = {
+    //         .base_path = "/spiffs",
+    //         .partition_label = NULL,
+    //         .max_files = 5,
+    //         .format_if_mount_failed = true
+    //     };
+    //     esp_err_t ret = esp_vfs_spiffs_register(&conf);
+    //     if (ret != ESP_OK) {
+    //         ESP_LOGE("SPIFFS", "Failed to mount or format filesystem");
+    //     }
+    // }
 
     void InitializeI2c() {
         // Initialize I2C peripheral
@@ -255,17 +255,17 @@ private:
     //     ESP_LOGI(TAG, "Sent command: %s", command_str);
     // }
 
-    void SavePhotoToSpiffs(const uint8_t* buf, size_t len, const std::string& filename) {
-        std::string path = "/spiffs/" + filename;
-        FILE* f = fopen(path.c_str(), "wb");
-        if (f) {
-            fwrite(buf, 1, len, f);
-            fclose(f);
-            ESP_LOGI(TAG, "Saved photo: %s", path.c_str());
-        } else {
-            ESP_LOGE(TAG, "Failed to open file for writing: %s", path.c_str());
-        }
-    }
+    // void SavePhotoToSpiffs(const uint8_t* buf, size_t len, const std::string& filename) {
+    //     std::string path = "/spiffs/" + filename;
+    //     FILE* f = fopen(path.c_str(), "wb");
+    //     if (f) {
+    //         fwrite(buf, 1, len, f);
+    //         fclose(f);
+    //         ESP_LOGI(TAG, "Saved photo: %s", path.c_str());
+    //     } else {
+    //         ESP_LOGE(TAG, "Failed to open file for writing: %s", path.c_str());
+    //     }
+    // }
     // 在文件末尾添加以下实现
 
     // 享老汇API配置
@@ -622,8 +622,8 @@ public:
         InitializeButtons();
         InitializeCamera();
         InitializeEchoUart();
-        //InitializeConsoleUart();
-        init_spiffs();
+        // InitializeConsoleUart();
+        // init_spiffs();
         // 打印输出一些内容测试uart0
         InitializeTools();
         //GetBacklight()->RestoreBrightness();
