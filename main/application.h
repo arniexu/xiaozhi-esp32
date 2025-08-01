@@ -17,12 +17,18 @@
 #include <opus_decoder.h>
 #include <opus_resampler.h>
 
+#include "esp_camera.h"
 #include "protocol.h"
 #include "ota.h"
 #include "background_task.h"
 #include "audio_processor.h"
 #include "wake_word.h"
 #include "audio_debugger.h"
+
+#include <map>
+#include <mutex>
+#include <condition_variable>
+#include <chrono>
 
 #define SCHEDULE_EVENT (1 << 0)
 #define SEND_AUDIO_EVENT (1 << 1)
@@ -84,16 +90,17 @@ public:
     AecMode GetAecMode() const { return aec_mode_; }
     BackgroundTask* GetBackgroundTask() const { return background_task_; }
     // 阿里云人脸数据库相关方法
-    std::string AddFaceToAliyunDB(const std::string& person_name, const std::string& image_base64);
-    std::string ListFacesInAliyunDB();
-    std::string ParseListFacesResult(const std::string& response);
     std::string whoareyou();
-    void InitializeFaceDB();
     
     // 其他可能需要的方法
     std::string CreateFaceDB(const std::string& db_name);
-    std::string SearchFaceInAliyunDB(const std::string& image_base64);
     std::string ParseSearchFaceResult(const std::string& response);
+    std::string ParseListFacesResult(const std::string& response);
+    // 人脸识别相关函数
+    std::string ListFacesInAliyunDB();
+    std::string AddFaceToAliyunDB(const std::string& person_name, camera_fb_t* fb);
+    std::string SearchFaceInAliyunDB(camera_fb_t* fb);
+    std::string UploadImageToHttp(camera_fb_t* fb, const std::string& filename);
 
 private:
     Application();
@@ -138,6 +145,21 @@ private:
     OpusResampler reference_resampler_;
     OpusResampler output_resampler_;
 
+    // 人脸API响应管理
+    std::map<std::string, std::string> face_api_responses_;
+    std::mutex face_api_mutex_;
+    std::condition_variable face_api_cv_;
+
+    bool InitializeFtpConnection();
+    void CleanupOldImages();
+    
+    // FTP配置
+    std::string ftp_server_ = "47.110.233.243";
+    int ftp_port_ = 21;
+    std::string ftp_username_ = "xuqianjin";
+    std::string ftp_password_ = "123";
+    std::string ftp_upload_path_ = "/home/xuqianjin/";
+
     void MainEventLoop();
     void OnAudioInput();
     void OnAudioOutput();
@@ -150,6 +172,11 @@ private:
     void AudioLoop();
     void EnterAudioTestingMode();
     void ExitAudioTestingMode();
+
+    std::string SendFaceApiRequest(const std::string& json_request);
+    void StoreFaceApiResponse(const std::string& request_id, const std::string& response);
+    std::string WaitForFaceApiResponse(const std::string& request_id, int timeout_seconds);
+    void CleanupExpiredResponses();
 };
 
 #endif // _APPLICATION_H_

@@ -441,9 +441,8 @@ private:
             light_mode_ = LIGHT_MODE_MAX;
             return true;
         });
-// 在 InitializeTools() 方法中添加享老汇健康数据查询工具
 
-        // 享老汇健康数据查询工具
+        // 享老汇健康数据查询工具,硬编码账户信息
         mcp_server.AddTool("self.health.query_elder_health_data", "查询老人健康数据", PropertyList({
             Property("mobile_phone", kPropertyTypeString)
         }), [this](const PropertyList& properties) -> ReturnValue {
@@ -552,7 +551,7 @@ private:
             
             // 保存到阿里云人脸数据库
             auto& app = Application::GetInstance();
-            std::string response = app.AddFaceToAliyunDB(person_name, image_base64);
+            std::string response = app.AddFaceToAliyunDB(person_name, fb);
             
             // 检查是否成功
             cJSON* root = cJSON_Parse(response.c_str());
