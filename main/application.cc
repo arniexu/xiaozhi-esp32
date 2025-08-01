@@ -419,7 +419,7 @@ void Application::StopListening() {
 #include <iomanip>
 #include <fstream>
 #include <dirent.h>
-#include "esp_http_client.h"
+#include "curl/curl.h"
 #include "cJSON.h"
 
 // 获取UTC时间字符串
@@ -481,8 +481,8 @@ std::string base64_encode(const unsigned char* data, size_t len) {
  * @param filename 文件名
  * @return ESP_OK 成功，其他失败
  */
+
 std::string Application::UploadImageToHttp(camera_fb_t* fb, const std::string& filename) {
-    // === 屏蔽音频流量：发送图片前暂停音频流 ===
     struct AudioGuard {
         decltype(audio_processor_)& proc;
         AudioGuard(decltype(audio_processor_)& p) : proc(p) { if (proc) proc->Stop(); }
@@ -496,143 +496,69 @@ std::string Application::UploadImageToHttp(camera_fb_t* fb, const std::string& f
 
     ESP_LOGI("UploadImageToHttp", "准备上传图片: %s (大小: %u 字节)", filename.c_str(), fb->len);
 
-    // 配置HTTP客户端
-    esp_http_client_config_t config = {};
-    config.url = UPLOAD_URL;
-    config.method = HTTP_METHOD_POST;
-    config.timeout_ms = 30000;
-    config.buffer_size = 2048;
-    config.buffer_size_tx = 1024;
-    config.transport_type = HTTP_TRANSPORT_OVER_TCP;
-    config.is_async = true; // 异步模式
-
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (!client) {
-        ESP_LOGE("UploadImageToHttp", "初始化HTTP客户端失败");
+    CURL *curl = curl_easy_init();
+    if (!curl) {
+        ESP_LOGE("UploadImageToHttp", "curl_easy_init() 失败");
         return "";
     }
 
-
-
-    // 生成curl风格的随机boundary（24字节，前16字节为-，后8字节为hex随机数）
-    char boundary[48] = {0};
-    strncpy(boundary, "------------------------", 24);
-    unsigned int r1 = esp_random();
-    unsigned int r2 = esp_random();
-    snprintf(boundary + 24, sizeof(boundary) - 24, "%08x%08x", r1, r2);
-    char content_type[128] = {0};
-    snprintf(content_type, sizeof(content_type), "multipart/form-data; boundary=%s", boundary);
-    esp_http_client_set_header(client, "Content-Type", content_type);
-    esp_http_client_set_header(client, "Connection", "close");
-
-    // multipart头部
-    char part_header[512] = {0};
-    int header_len = snprintf(part_header, sizeof(part_header),
-        "--%s\r\n"
-        "Content-Disposition: form-data; name=\"image\"; filename=\"%s\"\r\n"
-        "Content-Type: image/jpeg\r\n"
-        "\r\n",
-        boundary, filename.c_str());
-    if (header_len < 0 || header_len >= (int)sizeof(part_header)) {
-        ESP_LOGE("UploadImageToHttp", "构建头部失败");
-        esp_http_client_cleanup(client);
-        return "";
-    }
-
-    // multipart尾部，严格对齐curl格式（无前置\r\n）
-    char part_footer[128] = {0};
-    int footer_len = snprintf(part_footer, sizeof(part_footer),
-        "--%s--\r\n", boundary);
-
-    // 计算Content-Length
-    size_t total_length = header_len + fb->len + footer_len;
-    char content_length_str[32] = {0};
-    snprintf(content_length_str, sizeof(content_length_str), "%d", total_length);
-    esp_http_client_set_header(client, "Content-Length", content_length_str);
-
-    // 日志详细打印各部分长度
-    ESP_LOGI("UploadImageToHttp", "boundary: %s", boundary);
-    ESP_LOGI("UploadImageToHttp", "header_len: %d, image_len: %u, footer_len: %d, total: %d", header_len, fb->len, footer_len, total_length);
-    ESP_LOG_BUFFER_HEXDUMP("UploadImageToHttp_header", part_header, header_len, ESP_LOG_INFO);
-    ESP_LOG_BUFFER_HEXDUMP("UploadImageToHttp_footer", part_footer, footer_len, ESP_LOG_INFO);
-
-
-    // 打开连接
-    esp_err_t err = esp_http_client_open(client, total_length);
-    if (err != ESP_OK) {
-        ESP_LOGE("UploadImageToHttp", "打开HTTP连接失败: %s", esp_err_to_name(err));
-        esp_http_client_cleanup(client);
-        return "";
-    }
-
-    // 发送头部
-    int w = esp_http_client_write(client, part_header, header_len);
-    ESP_LOGI("UploadImageToHttp", "实际发送头部字节数: %d", w);
-    if (w != header_len) {
-        ESP_LOGE("UploadImageToHttp", "发送头部失败: %d/%d", w, header_len);
-        esp_http_client_cleanup(client);
-        return "";
-    }
-
-    // 发送图片数据
-    size_t bytes_sent = 0;
-    size_t total_image_sent = 0;
-    while (bytes_sent < fb->len) {
-        size_t chunk = (fb->len - bytes_sent) > 4096 ? 4096 : (fb->len - bytes_sent);
-        int ret = esp_http_client_write(client, (const char*)fb->buf + bytes_sent, chunk);
-        if (ret != (int)chunk) {
-            ESP_LOGE("UploadImageToHttp", "发送图片数据失败: %d/%d at %u", ret, (int)chunk, (unsigned)bytes_sent);
-            esp_http_client_cleanup(client);
-            return "";
-        }
-        bytes_sent += chunk;
-        total_image_sent += ret;
-    }
-    ESP_LOGI("UploadImageToHttp", "实际发送图片数据字节数: %u", (unsigned)total_image_sent);
-
-    // 发送尾部
-    w = esp_http_client_write(client, part_footer, footer_len);
-    ESP_LOGI("UploadImageToHttp", "实际发送尾部字节数: %d", w);
-    if (w != footer_len) {
-        ESP_LOGE("UploadImageToHttp", "发送尾部失败: %d/%d", w, footer_len);
-        esp_http_client_cleanup(client);
-        return "";
-    }
-
-    // 执行请求并获取响应
-    err = esp_http_client_perform(client);
+    struct curl_httppost* formpost = nullptr;
+    struct curl_httppost* lastptr = nullptr;
+    struct curl_slist* headers = nullptr;
     std::string result_path;
-    if (err == ESP_OK) {
-        int status_code = esp_http_client_get_status_code(client);
-        ESP_LOGI("UploadImageToHttp", "上传完成，HTTP状态码: %d", status_code);
+    std::string response_data;
 
-        char response[1024] = {0};
-        int resp_len = esp_http_client_read(client, response, sizeof(response) - 1);
-        if (resp_len > 0) {
-            ESP_LOGI("UploadImageToHttp", "服务器响应: %s", response);
-            // 尝试解析JSON中的file_path字段
-            cJSON* root = cJSON_Parse(response);
-            if (root) {
-                cJSON* data = cJSON_GetObjectItem(root, "data");
-                if (data && cJSON_IsObject(data)) {
-                    cJSON* file_path = cJSON_GetObjectItem(data, "file_path");
-                    if (file_path && cJSON_IsString(file_path)) {
-                        result_path = file_path->valuestring;
-                        ESP_LOGI("UploadImageToHttp", "图片已上传，服务器路径: %s", result_path.c_str());
-                    }
+    // 回调函数收集响应
+    auto write_callback = [](char* ptr, size_t size, size_t nmemb, void* userdata) -> size_t {
+        std::string* resp = static_cast<std::string*>(userdata);
+        resp->append(ptr, size * nmemb);
+        return size * nmemb;
+    };
+
+    // 添加图片字段
+    curl_formadd(&formpost, &lastptr,
+        CURLFORM_COPYNAME, "image",
+        CURLFORM_BUFFER, filename.c_str(),
+        CURLFORM_BUFFERPTR, fb->buf,
+        CURLFORM_BUFFERLENGTH, fb->len,
+        CURLFORM_CONTENTTYPE, "image/jpeg",
+        CURLFORM_END);
+
+    curl_easy_setopt(curl, CURLOPT_URL, UPLOAD_URL);
+    curl_easy_setopt(curl, CURLOPT_HTTPPOST, formpost);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_data);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+
+    CURLcode res = curl_easy_perform(curl);
+    if (res != CURLE_OK) {
+        ESP_LOGE("UploadImageToHttp", "curl_easy_perform() 失败: %s", curl_easy_strerror(res));
+    } else {
+        long http_code = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+        ESP_LOGI("UploadImageToHttp", "上传完成，HTTP状态码: %ld", http_code);
+        ESP_LOGI("UploadImageToHttp", "服务器响应: %s", response_data.c_str());
+        // 解析JSON响应
+        cJSON* root = cJSON_Parse(response_data.c_str());
+        if (root) {
+            cJSON* data = cJSON_GetObjectItem(root, "data");
+            if (data && cJSON_IsObject(data)) {
+                cJSON* file_path = cJSON_GetObjectItem(data, "file_path");
+                if (file_path && cJSON_IsString(file_path)) {
+                    result_path = file_path->valuestring;
+                    ESP_LOGI("UploadImageToHttp", "图片已上传，服务器路径: %s", result_path.c_str());
                 }
-                cJSON_Delete(root);
             }
+            cJSON_Delete(root);
         }
-        if (status_code < 200 || status_code >= 300) {
-            ESP_LOGE("UploadImageToHttp", "服务器返回错误状态码: %d", status_code);
+        if (http_code < 200 || http_code >= 300) {
+            ESP_LOGE("UploadImageToHttp", "服务器返回错误状态码: %ld", http_code);
             result_path.clear();
         }
-    } else {
-        ESP_LOGE("UploadImageToHttp", "HTTP请求执行失败: %s", esp_err_to_name(err));
     }
 
-    esp_http_client_cleanup(client);
+    curl_formfree(formpost);
+    curl_easy_cleanup(curl);
     return result_path;
 }
 
