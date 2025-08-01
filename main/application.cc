@@ -419,7 +419,7 @@ void Application::StopListening() {
 #include <iomanip>
 #include <fstream>
 #include <dirent.h>
-#include "curl/curl.h"
+#include "espcurl.h"
 #include "cJSON.h"
 
 // 获取UTC时间字符串
@@ -496,50 +496,37 @@ std::string Application::UploadImageToHttp(camera_fb_t* fb, const std::string& f
 
     ESP_LOGI("UploadImageToHttp", "准备上传图片: %s (大小: %u 字节)", filename.c_str(), fb->len);
 
-    CURL *curl = curl_easy_init();
-    if (!curl) {
-        ESP_LOGE("UploadImageToHttp", "curl_easy_init() 失败");
+    // 分配header/body缓冲区
+    char *hdrbuf = (char*)calloc(1024, 1);
+    char *bodybuf = (char*)calloc(4096, 1);
+    if (!hdrbuf || !bodybuf) {
+        ESP_LOGE("UploadImageToHttp", "内存分配失败");
+        if (hdrbuf) free(hdrbuf);
+        if (bodybuf) free(bodybuf);
         return "";
     }
 
-    struct curl_httppost* formpost = nullptr;
-    struct curl_httppost* lastptr = nullptr;
-    struct curl_slist* headers = nullptr;
-    std::string result_path;
-    std::string response_data;
-
-    // 回调函数收集响应
-    auto write_callback = [](char* ptr, size_t size, size_t nmemb, void* userdata) -> size_t {
-        std::string* resp = static_cast<std::string*>(userdata);
-        resp->append(ptr, size * nmemb);
-        return size * nmemb;
-    };
-
-    // 添加图片字段
+    // 构造multipart参数，image字段，直接用内存数据
+    extern struct curl_httppost *formpost;
+    extern struct curl_httppost *lastptr;
+    formpost = NULL;
+    lastptr = NULL;
+    // 传递图片buffer
     curl_formadd(&formpost, &lastptr,
         CURLFORM_COPYNAME, "image",
         CURLFORM_BUFFER, filename.c_str(),
         CURLFORM_BUFFERPTR, fb->buf,
-        CURLFORM_BUFFERLENGTH, fb->len,
+        CURLFORM_BUFFERLENGTH, (long)fb->len,
         CURLFORM_CONTENTTYPE, "image/jpeg",
         CURLFORM_END);
 
-    curl_easy_setopt(curl, CURLOPT_URL, UPLOAD_URL);
-    curl_easy_setopt(curl, CURLOPT_HTTPPOST, formpost);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_data);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+    // 可选：添加额外参数
+    // curl_formadd(&formpost, &lastptr, CURLFORM_COPYNAME, "param1", CURLFORM_COPYCONTENTS, "value", CURLFORM_END);
 
-    CURLcode res = curl_easy_perform(curl);
-    if (res != CURLE_OK) {
-        ESP_LOGE("UploadImageToHttp", "curl_easy_perform() 失败: %s", curl_easy_strerror(res));
-    } else {
-        long http_code = 0;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-        ESP_LOGI("UploadImageToHttp", "上传完成，HTTP状态码: %ld", http_code);
-        ESP_LOGI("UploadImageToHttp", "服务器响应: %s", response_data.c_str());
-        // 解析JSON响应
-        cJSON* root = cJSON_Parse(response_data.c_str());
+    int res = Curl_POST((char*)UPLOAD_URL, hdrbuf, bodybuf, 1024, 4096);
+    std::string result_path;
+    if (res == 0) {
+        cJSON* root = cJSON_Parse(bodybuf);
         if (root) {
             cJSON* data = cJSON_GetObjectItem(root, "data");
             if (data && cJSON_IsObject(data)) {
@@ -551,14 +538,11 @@ std::string Application::UploadImageToHttp(camera_fb_t* fb, const std::string& f
             }
             cJSON_Delete(root);
         }
-        if (http_code < 200 || http_code >= 300) {
-            ESP_LOGE("UploadImageToHttp", "服务器返回错误状态码: %ld", http_code);
-            result_path.clear();
-        }
+    } else {
+        ESP_LOGE("UploadImageToHttp", "Curl_POST 上传失败: %d", res);
     }
-
-    curl_formfree(formpost);
-    curl_easy_cleanup(curl);
+    free(hdrbuf);
+    free(bodybuf);
     return result_path;
 }
 

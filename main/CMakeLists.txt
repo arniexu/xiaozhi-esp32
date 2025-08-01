@@ -1,5 +1,3 @@
-# 确保libcurl作为本地组件被自动编译和链接
-set(EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/components/libcurl")
 set(SOURCES "audio_codecs/audio_codec.cc"
             "audio_codecs/no_audio_codec.cc"
             "audio_codecs/box_audio_codec.cc"
@@ -24,10 +22,11 @@ set(SOURCES "audio_codecs/audio_codec.cc"
             "ota.cc"
             "settings.cc"
             "background_task.cc"
+            "espcurl.c"
             "main.cc"
             )
 
-set(INCLUDE_DIRS "." "display" "audio_codecs" "protocols" "audio_processing")
+set(INCLUDE_DIRS "." "display" "audio_codecs" "protocols" "audio_processing" "components/curl/include" "components/curl/include/curl")
 
 # 添加 IOT 相关文件
 file(GLOB IOT_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/iot/things/*.cc)
@@ -38,7 +37,15 @@ file(GLOB BOARD_COMMON_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/boards/common/*.cc)
 list(APPEND SOURCES ${BOARD_COMMON_SOURCES})
 list(APPEND INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/boards/common)
 
-list(APPEND INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/components/libcurl/include")
+# 自动收集第三方库C文件
+file(GLOB CURL_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/components/curl/lib/vauth/*.c)
+file(GLOB CURL_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/components/curl/lib/vtls/*.c)
+file(GLOB CURL_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/components/curl/lib/*.c)
+
+#file(GLOB LIBSSH2_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/components/libssh2/lib/*.c)
+#file(GLOB PPPOS_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/components/pppos/*.c)
+##file(GLOB ZLIB_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/components/zlib/*.c)
+#list(APPEND SOURCES ${CURL_SOURCES} ${LIBSSH2_SOURCES} ${PPPOS_SOURCES} ${QUICKMAIL_SOURCES} ${ZLIB_SOURCES})
 
 # 根据 BOARD_TYPE 配置添加对应的板级文件
 if(CONFIG_BOARD_TYPE_BREAD_COMPACT_WIFI)
@@ -254,7 +261,6 @@ idf_component_register(SRCS ${SOURCES}
                     EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS}
                     INCLUDE_DIRS ${INCLUDE_DIRS}
                     WHOLE_ARCHIVE
-                    # REQUIRES libcurl (已移除，改为本地组件方式)
                     )
 
 # 使用 target_compile_definitions 来定义 BOARD_TYPE, BOARD_NAME
