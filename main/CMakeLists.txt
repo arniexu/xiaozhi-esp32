@@ -22,11 +22,10 @@ set(SOURCES "audio_codecs/audio_codec.cc"
             "ota.cc"
             "settings.cc"
             "background_task.cc"
-            "espcurl.c"
             "main.cc"
             )
 
-set(INCLUDE_DIRS "." "display" "audio_codecs" "protocols" "audio_processing" "components/curl/include" "components/curl/include/curl")
+set(INCLUDE_DIRS "." "display" "audio_codecs" "protocols" "audio_processing" "${CMAKE_SOURCE_DIR}/managed_components/78__esp-opus/include")
 
 # 添加 IOT 相关文件
 file(GLOB IOT_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/iot/things/*.cc)
@@ -37,10 +36,8 @@ file(GLOB BOARD_COMMON_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/boards/common/*.cc)
 list(APPEND SOURCES ${BOARD_COMMON_SOURCES})
 list(APPEND INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/boards/common)
 
-# 自动收集第三方库C文件
-file(GLOB CURL_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/components/curl/lib/vauth/*.c)
-file(GLOB CURL_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/components/curl/lib/vtls/*.c)
-file(GLOB CURL_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/components/curl/lib/*.c)
+# 你的主工程源码
+list(APPEND SOURCES espcurl.c)
 
 #file(GLOB LIBSSH2_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/components/libssh2/lib/*.c)
 #file(GLOB PPPOS_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/components/pppos/*.c)
@@ -261,50 +258,24 @@ idf_component_register(SRCS ${SOURCES}
                     EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS}
                     INCLUDE_DIRS ${INCLUDE_DIRS}
                     WHOLE_ARCHIVE
+                    REQUIRES curl
                     )
 
-# 使用 target_compile_definitions 来定义 BOARD_TYPE, BOARD_NAME
-# 如果 BOARD_NAME 为空，则使用 BOARD_TYPE
-if(NOT BOARD_NAME)
-    set(BOARD_NAME ${BOARD_TYPE})
-endif()
-target_compile_definitions(${COMPONENT_LIB}
-                    PRIVATE BOARD_TYPE=\"${BOARD_TYPE}\" BOARD_NAME=\"${BOARD_NAME}\"
-                    )
-
-# 添加生成规则
-add_custom_command(
-    OUTPUT ${LANG_HEADER}
-    COMMAND python ${PROJECT_DIR}/scripts/gen_lang.py
-            --input "${LANG_JSON}"
-            --output "${LANG_HEADER}"
-    DEPENDS
-        ${LANG_JSON}
-        ${PROJECT_DIR}/scripts/gen_lang.py
-    COMMENT "Generating ${LANG_DIR} language config"
-)
-
-# 强制建立生成依赖
-add_custom_target(lang_header ALL
-    DEPENDS ${LANG_HEADER}
-)
-
-if(CONFIG_BOARD_TYPE_ESP_HI)
-set(URL "https://github.com/espressif2022/image_player/raw/main/test_apps/test_8bit")
+# 使用 target_compile_definitions 来定义 BOARD_TYPE, BOARD_NAME+
 set(SPIFFS_DIR "${CMAKE_BINARY_DIR}/emoji")
 file(MAKE_DIRECTORY ${SPIFFS_DIR})
 
 # List all files to download
 set(FILES_TO_DOWNLOAD "")
-list(APPEND FILES_TO_DOWNLOAD "Anger_enter.aaf" "Anger_loop.aaf" "Anger_return.aaf")
-list(APPEND FILES_TO_DOWNLOAD "happy_enter.aaf" "happy_loop.aaf" "happ_return.aaf")
-list(APPEND FILES_TO_DOWNLOAD "sad_enter.aaf" "sad_loop.aaf" "sad_return.aaf")
-list(APPEND FILES_TO_DOWNLOAD "scorn_enter.aaf" "scorn_loop.aaf" "scorn_return.aaf")
-list(APPEND FILES_TO_DOWNLOAD "left_enter.aaf" "left_loop.aaf" "left_return.aaf")
-list(APPEND FILES_TO_DOWNLOAD "right_enter.aaf" "right_loop.aaf" "right_return.aaf")
-list(APPEND FILES_TO_DOWNLOAD "asking.aaf" "blink_once.aaf" "blink_quick.aaf")
-list(APPEND FILES_TO_DOWNLOAD "connecting.aaf" "panic_enter.aaf" "panic_loop.aaf")
-list(APPEND FILES_TO_DOWNLOAD "panic_return.aaf" "wake.aaf")
+# list(APPEND FILES_TO_DOWNLOAD "Anger_enter.aaf" "Anger_loop.aaf" "Anger_return.aaf")
+# list(APPEND FILES_TO_DOWNLOAD "happy_enter.aaf" "happy_loop.aaf" "happ_return.aaf")
+# list(APPEND FILES_TO_DOWNLOAD "sad_enter.aaf" "sad_loop.aaf" "sad_return.aaf")
+# list(APPEND FILES_TO_DOWNLOAD "scorn_enter.aaf" "scorn_loop.aaf" "scorn_return.aaf")
+# list(APPEND FILES_TO_DOWNLOAD "left_enter.aaf" "left_loop.aaf" "left_return.aaf")
+# list(APPEND FILES_TO_DOWNLOAD "right_enter.aaf" "right_loop.aaf" "right_return.aaf")
+# list(APPEND FILES_TO_DOWNLOAD "asking.aaf" "blink_once.aaf" "blink_quick.aaf")
+# list(APPEND FILES_TO_DOWNLOAD "connecting.aaf" "panic_enter.aaf" "panic_loop.aaf")
+# list(APPEND FILES_TO_DOWNLOAD "panic_return.aaf" "wake.aaf")
 
 foreach(FILENAME IN LISTS FILES_TO_DOWNLOAD)
     set(REMOTE_FILE "${URL}/${FILENAME}")
@@ -330,4 +301,3 @@ spiffs_create_partition_assets(
     FLASH_IN_PROJECT
     MMAP_FILE_SUPPORT_FORMAT ".aaf"
 )
-endif()
