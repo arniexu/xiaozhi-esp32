@@ -77,8 +77,9 @@ void Application::CheckNewVersion(Ota& ota) {
     while (true) {
         SetDeviceState(kDeviceStateActivating);
         auto display = Board::GetInstance().GetDisplay();
-        if(display)
-        display->SetStatus(Lang::Strings::CHECKING_NEW_VERSION);
+        if(display) {
+            display->SetStatus(Lang::Strings::CHECKING_NEW_VERSION);
+        }
 
         if (!ota.CheckVersion()) {
             retry_count++;
@@ -110,11 +111,13 @@ void Application::CheckNewVersion(Ota& ota) {
             vTaskDelay(pdMS_TO_TICKS(3000));
 
             SetDeviceState(kDeviceStateUpgrading);
-            if(display)
-            display->SetIcon(FONT_AWESOME_DOWNLOAD);
+            if(display) {
+                display->SetIcon(FONT_AWESOME_DOWNLOAD);
+            }
             std::string message = std::string(Lang::Strings::NEW_VERSION) + ota.GetFirmwareVersion();
-            if(display)
-            display->SetChatMessage("system", message.c_str());
+            if(display) {
+                display->SetChatMessage("system", message.c_str());
+            }
 
             auto& board = Board::GetInstance();
             board.SetPowerSaveMode(false);
@@ -124,8 +127,9 @@ void Application::CheckNewVersion(Ota& ota) {
             bool upgrade_success = ota.StartUpgrade([display](int progress, size_t speed) {
                 char buffer[64];
                 snprintf(buffer, sizeof(buffer), "%d%% %uKB/s", progress, speed / 1024);
-                if(display)
-                display->SetChatMessage("system", buffer);
+                if(display) {
+                    display->SetChatMessage("system", buffer);
+                }
             });
 
             if (!upgrade_success) {
@@ -139,7 +143,9 @@ void Application::CheckNewVersion(Ota& ota) {
             } else {
                 // Upgrade success, reboot immediately
                 ESP_LOGI(TAG, "Firmware upgrade successful, rebooting...");
-                display->SetChatMessage("system", "Upgrade successful, rebooting...");
+                if (display) {
+                    display->SetChatMessage("system", "Upgrade successful, rebooting...");
+                }
                 vTaskDelay(pdMS_TO_TICKS(1000)); // Brief pause to show message
                 Reboot();
                 return; // This line will never be reached after reboot
@@ -154,8 +160,9 @@ void Application::CheckNewVersion(Ota& ota) {
             break;
         }
 
-        if(display)
-        display->SetStatus(Lang::Strings::ACTIVATION);
+        if(display) {
+            display->SetStatus(Lang::Strings::ACTIVATION);
+        }
         // Activation code is shown to the user and waiting for the user to input
         if (ota.HasActivationCode()) {
             ShowActivationCode(ota.GetActivationCode(), ota.GetActivationMessage());
@@ -990,16 +997,18 @@ void Application::Start() {
     board.StartNetwork();
 
     // Update the status bar immediately to show the network state
-    if(display)
-    display->UpdateStatusBar(true);
+    if(display) {
+        display->UpdateStatusBar(true);
+    }
 
     // Check for new firmware version or get the MQTT broker address
     Ota ota;
     CheckNewVersion(ota);
 
     // Initialize the protocol
-    if(display)
-    display->SetStatus(Lang::Strings::LOADING_PROTOCOL);
+    if(display) {
+        display->SetStatus(Lang::Strings::LOADING_PROTOCOL);
+    }
 
     // Add MCP common tools before initializing the protocol
     McpServer::GetInstance().AddCommonTools();
@@ -1033,8 +1042,9 @@ void Application::Start() {
         board.SetPowerSaveMode(true);
         Schedule([this]() {
             auto display = Board::GetInstance().GetDisplay();
-            if(display)
-            display->SetChatMessage("system", "");
+            if(display) {
+                display->SetChatMessage("system", "");
+            }
             SetDeviceState(kDeviceStateIdle);
         });
     });
@@ -1065,8 +1075,9 @@ void Application::Start() {
                 if (cJSON_IsString(text)) {
                     ESP_LOGI(TAG, "<< %s", text->valuestring);
                     Schedule([this, display, message = std::string(text->valuestring)]() {
-                        if(display)
-                        display->SetChatMessage("assistant", message.c_str());
+                        if(display) {
+                            display->SetChatMessage("assistant", message.c_str());
+                        }
                     });
                 }
             }
@@ -1075,8 +1086,9 @@ void Application::Start() {
             if (cJSON_IsString(text)) {
                 ESP_LOGI(TAG, ">> %s", text->valuestring);
                 Schedule([this, display, message = std::string(text->valuestring)]() {
-                    if(display)
-                    display->SetChatMessage("user", message.c_str());
+                    if(display) {
+                        display->SetChatMessage("user", message.c_str());
+                    }
                 });
             }
         } else if (strcmp(type->valuestring, "llm") == 0) {
@@ -1143,8 +1155,10 @@ void Application::Start() {
     has_server_time_ = ota.HasServerTime();
     if (protocol_started) {
         std::string message = std::string(Lang::Strings::VERSION) + ota.GetCurrentVersion();
+        if (display) {
         display->ShowNotification(message.c_str());
         display->SetChatMessage("system", "");
+        }
         // Play the success sound to indicate the device is ready
         audio_service_.PlaySound(Lang::Sounds::P3_SUCCESS);
     }
@@ -1157,6 +1171,7 @@ void Application::OnClockTimer() {
     clock_ticks_++;
 
     auto display = Board::GetInstance().GetDisplay();
+    if (display)
     display->UpdateStatusBar();
 
     // Print the debug info every 10 seconds
@@ -1293,20 +1308,25 @@ void Application::SetDeviceState(DeviceState state) {
     switch (state) {
         case kDeviceStateUnknown:
         case kDeviceStateIdle:
+        if (display) {
             display->SetStatus(Lang::Strings::STANDBY);
             display->SetEmotion("neutral");
+        }
             audio_service_.EnableVoiceProcessing(false);
             audio_service_.EnableWakeWordDetection(true);
             break;
         case kDeviceStateConnecting:
+                if (display) {
             display->SetStatus(Lang::Strings::CONNECTING);
             display->SetEmotion("neutral");
             display->SetChatMessage("system", "");
+                }
             break;
         case kDeviceStateListening:
+                if (display) {
             display->SetStatus(Lang::Strings::LISTENING);
             display->SetEmotion("neutral");
-
+                }
             // Make sure the audio processor is running
             if (!audio_service_.IsAudioProcessorRunning()) {
                 // Send the start listening command
@@ -1316,7 +1336,8 @@ void Application::SetDeviceState(DeviceState state) {
             }
             break;
         case kDeviceStateSpeaking:
-            display->SetStatus(Lang::Strings::SPEAKING);
+            if (display)
+                display->SetStatus(Lang::Strings::SPEAKING);
 
             if (listening_mode_ != kListeningModeRealtime) {
                 audio_service_.EnableVoiceProcessing(false);
@@ -1394,14 +1415,17 @@ void Application::SetAecMode(AecMode mode) {
         switch (aec_mode_) {
         case kAecOff:
             audio_service_.EnableDeviceAec(false);
+            if (display)
             display->ShowNotification(Lang::Strings::RTC_MODE_OFF);
             break;
         case kAecOnServerSide:
             audio_service_.EnableDeviceAec(false);
+            if (display)
             display->ShowNotification(Lang::Strings::RTC_MODE_ON);
             break;
         case kAecOnDeviceSide:
             audio_service_.EnableDeviceAec(true);
+            if (display)
             display->ShowNotification(Lang::Strings::RTC_MODE_ON);
             break;
         }

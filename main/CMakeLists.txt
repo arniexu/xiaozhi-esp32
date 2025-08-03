@@ -266,7 +266,7 @@ endif()
 idf_component_register(SRCS ${SOURCES}
                     EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS}
                     INCLUDE_DIRS ${INCLUDE_DIRS}
-                    PRIV_REQUIRES curl spi_flash esp_app_format app_update efuse
+                    PRIV_REQUIRES curl spi_flash esp_app_format app_update efuse esp_http_client
                     WHOLE_ARCHIVE
                     )
 

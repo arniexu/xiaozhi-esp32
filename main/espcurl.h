@@ -5,6 +5,10 @@
 #include "curl/curl.h"
 //#include "quickmail/quickmail.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define MIN_HDR_BODY_BUF_LEN  1024
 #define GMAIL_SMTP  "smtp.gmail.com";
 #define GMAIL_PORT  465;
@@ -133,5 +137,8 @@ int Curl_SFTP(uint8_t upload, char *url, char *pass, char *fname, char *hdr, cha
 
 void Curl_cleanup();
 
+#ifdef __cplusplus
+}
+#endif
 
 #endif
