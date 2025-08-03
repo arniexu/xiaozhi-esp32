@@ -11,6 +11,7 @@
 #include <wifi_station.h>
 #include <esp_log.h>
 #include <esp_lcd_panel_vendor.h>
+#include <esp_spiffs.h>
 #include <driver/i2c_master.h>
 #include <driver/spi_common.h>
 #include <driver/uart.h>
@@ -81,7 +82,36 @@ private:
         ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_bus_cfg, &i2c_bus_));
     }
 
-    void InitializeSpi() {
+    void MountStorage() {
+        // Mount the storage partition
+        esp_vfs_spiffs_conf_t conf = {
+            .base_path = "/storage",
+            .partition_label = "storage",
+            .max_files = 5,
+            .format_if_mount_failed = true,
+        };
+        
+        esp_err_t ret = esp_vfs_spiffs_register(&conf);
+        if (ret != ESP_OK) {
+            if (ret == ESP_FAIL) {
+                ESP_LOGE(TAG, "Failed to mount or format filesystem");
+            } else if (ret == ESP_ERR_NOT_FOUND) {
+                ESP_LOGE(TAG, "Failed to find SPIFFS partition 'storage'");
+            } else {
+                ESP_LOGE(TAG, "Failed to initialize SPIFFS (%s)", esp_err_to_name(ret));
+            }
+            return;
+        }
+        
+        size_t total = 0, used = 0;
+        ret = esp_spiffs_info("storage", &total, &used);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to get SPIFFS partition information (%s)", esp_err_to_name(ret));
+        } else {
+            ESP_LOGI(TAG, "Storage partition size: total: %d KB, used: %d KB", total / 1024, used / 1024);
+        }
+    }
+void InitializeSpi() {
         spi_bus_config_t buscfg = {};
         buscfg.mosi_io_num = DISPLAY_MOSI_GPIO;
         buscfg.miso_io_num = GPIO_NUM_NC;
@@ -495,7 +525,7 @@ private:
             throw std::runtime_error("Invalid light mode");
         });
         
-        mcp_server.AddTool("self.camera.user_register", "注册新用户", PropertyList({
+        mcp_server.AddTool("self.camera.user_register", "注册新用户，用户需提供用户名，用户名只能包含英文字母和数字", PropertyList({
             Property("person_name", kPropertyTypeString)
         }), [this](const PropertyList& properties) -> ReturnValue {
             if (!camera_) {
@@ -512,10 +542,7 @@ private:
                 esp_camera_fb_return(fb);
                 throw std::runtime_error("Camera capture failed");
             }
-            
-            std::string image_base64 = base64_encode(fb->buf, fb->len);
-            esp_camera_fb_return(fb);
-            
+            ESP_LOGI("Camera", "Captured photo for person: %s", person_name.c_str());               
             // 保存到阿里云人脸数据库
             auto& app = Application::GetInstance();
             std::string response = app.AddFaceToAliyunDB(person_name, fb);
@@ -530,7 +557,7 @@ private:
                 }
                 cJSON_Delete(root);
             }
-            
+            esp_camera_fb_return(fb);
             if (success) {
                 ESP_LOGI("Camera", "Face saved to Aliyun DB for person: %s", person_name.c_str());
                 return true;
@@ -589,7 +616,7 @@ public:
         InitializeCamera();
         InitializeEchoUart();
         // InitializeConsoleUart();
-        // init_spiffs();
+        MountStorage();
         // 打印输出一些内容测试uart0
         InitializeTools();
         //GetBacklight()->RestoreBrightness();

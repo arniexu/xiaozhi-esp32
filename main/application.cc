@@ -405,14 +405,13 @@ std::string base64_encode(const unsigned char* data, size_t len) {
 #define UPLOAD_URL "http://47.110.233.243:8003/api/upload/image"
 
 /**
- * 通过HTTP发送照片
- * @param image_data 图像数据缓冲区
- * @param image_len 图像数据长度
+ * 通过FTP上传照片
+ * @param fb 相机帧缓冲区
  * @param filename 文件名
- * @return ESP_OK 成功，其他失败
+ * @return 上传后的文件路径，失败返回空字符串
  */
 
-std::string Application::UploadImageToHttp(camera_fb_t* fb, const std::string& filename) {
+std::string Application::UploadImageToFtp(camera_fb_t* fb, const std::string& filename) {
     struct AudioGuard {
         decltype(audio_service_)& proc;
         AudioGuard(decltype(audio_service_)& p) : proc(p) {  proc.Stop(); }
@@ -420,59 +419,63 @@ std::string Application::UploadImageToHttp(camera_fb_t* fb, const std::string& f
     } audio_guard(audio_service_);
 
     if (!fb || !fb->buf || fb->len == 0 || filename.empty()) {
-        ESP_LOGE("UploadImageToHttp", "无效参数: 图像数据或文件名为空");
+        ESP_LOGE("UploadImageToFtp", "无效参数: 图像数据或文件名为空");
         return "";
     }
 
-    ESP_LOGI("UploadImageToHttp", "准备上传图片: %s (大小: %u 字节)", filename.c_str(), fb->len);
+    ESP_LOGI("UploadImageToFtp", "准备FTP上传图片: %s (大小: %u 字节)", filename.c_str(), fb->len);
 
-    // 分配header/body缓冲区
+    // 先将图片保存到本地临时文件
+    std::string temp_file = "/storage/" + filename;
+    FILE* file = fopen(temp_file.c_str(), "wb");
+    if (!file) {
+        ESP_LOGE("UploadImageToFtp", "无法创建临时文件: %s", temp_file.c_str());
+        return "";
+    }
+
+    size_t written = fwrite(fb->buf, 1, fb->len, file);
+    fclose(file);
+    
+    if (written != fb->len) {
+        ESP_LOGE("UploadImageToFtp", "写入临时文件失败");
+        remove(temp_file.c_str());
+        return "";
+    }
+
+    // FTP上传配置
+    #define FTP_SERVER "ftp://47.110.233.24/home/x3uqianjin/" 
+    #define FTP_USER_PASS "xuqianjin:123"  // 请修改为实际的FTP用户名密码
+    
+    std::string ftp_url = std::string(FTP_SERVER) + filename;
+    
+    // 分配缓冲区
     char *hdrbuf = (char*)calloc(1024, 1);
     char *bodybuf = (char*)calloc(4096, 1);
     if (!hdrbuf || !bodybuf) {
-        ESP_LOGE("UploadImageToHttp", "内存分配失败");
+        ESP_LOGE("UploadImageToFtp", "内存分配失败");
         if (hdrbuf) free(hdrbuf);
         if (bodybuf) free(bodybuf);
+        remove(temp_file.c_str());
         return "";
     }
 
-    // 构造multipart参数，image字段，直接用内存数据
-    extern struct curl_httppost *formpost;
-    extern struct curl_httppost *lastptr;
-    formpost = NULL;
-    lastptr = NULL;
-    // 传递图片buffer
-    curl_formadd(&formpost, &lastptr,
-        CURLFORM_COPYNAME, "image",
-        CURLFORM_BUFFER, filename.c_str(),
-        CURLFORM_BUFFERPTR, fb->buf,
-        CURLFORM_BUFFERLENGTH, (long)fb->len,
-        CURLFORM_CONTENTTYPE, "image/jpeg",
-        CURLFORM_END);
-
-    // 可选：添加额外参数
-    // curl_formadd(&formpost, &lastptr, CURLFORM_COPYNAME, "param1", CURLFORM_COPYCONTENTS, "value", CURLFORM_END);
-
-    int res = Curl_POST((char*)UPLOAD_URL, hdrbuf, bodybuf, 1024, 4096);
+    // 使用FTP上传文件
+    int res = Curl_FTP(1, (char*)ftp_url.c_str(), (char*)FTP_USER_PASS, (char*)temp_file.c_str(), 
+                       hdrbuf, bodybuf, 1024, 4096);
+    
     std::string result_path;
     if (res == 0) {
-        cJSON* root = cJSON_Parse(bodybuf);
-        if (root) {
-            cJSON* data = cJSON_GetObjectItem(root, "data");
-            if (data && cJSON_IsObject(data)) {
-                cJSON* file_path = cJSON_GetObjectItem(data, "file_path");
-                if (file_path && cJSON_IsString(file_path)) {
-                    result_path = file_path->valuestring;
-                    ESP_LOGI("UploadImageToHttp", "图片已上传，服务器路径: %s", result_path.c_str());
-                }
-            }
-            cJSON_Delete(root);
-        }
+        result_path = std::string("/uploads/") + filename;
+        ESP_LOGI("UploadImageToFtp", "图片已通过FTP上传: %s", result_path.c_str());
     } else {
-        ESP_LOGE("UploadImageToHttp", "Curl_POST 上传失败: %d", res);
+        ESP_LOGE("UploadImageToFtp", "FTP上传失败: %d", res);
     }
+    
+    // 清理资源
     free(hdrbuf);
     free(bodybuf);
+    remove(temp_file.c_str());  // 删除临时文件
+    
     return result_path;
 }
 
@@ -566,10 +569,10 @@ std::string Application::AddFaceToAliyunDB(const std::string& person_name, camer
     uint64_t timestamp = esp_timer_get_time();
     std::string filename = "face_" + person_name + "_" + std::to_string(timestamp) + ".jpg";
     
-    // 🔥 直接上传原始JPEG图片到HTTP服务器
-    std::string image_path = UploadImageToHttp(fb, filename);  // 🔥 变量名改为 image_path
+    // 🔥 直接上传原始JPEG图片到FTP服务器
+    std::string image_path = UploadImageToFtp(fb, filename);  // 🔥 变量名改为 image_path
     if (image_path.empty()) {
-        ESP_LOGE("FaceRec", "Failed to upload image to HTTP server");
+        ESP_LOGE("FaceRec", "Failed to upload image to FTP server");
         Alert(Lang::Strings::ERROR, "图片上传失败", "sad", Lang::Sounds::P3_EXCLAMATION);
         return "";
     }
@@ -619,10 +622,10 @@ std::string Application::SearchFaceInAliyunDB(camera_fb_t* fb) {
     uint64_t timestamp = esp_timer_get_time();
     std::string filename = "search_" + std::to_string(timestamp) + ".jpg";
     
-    // 🔥 直接上传原始JPEG图片到HTTP服务器
-    std::string image_path = UploadImageToHttp(fb, filename);  // 🔥 变量名改为 image_path
+    // 🔥 直接上传原始JPEG图片到FTP服务器
+    std::string image_path = UploadImageToFtp(fb, filename);  // 🔥 变量名改为 image_path
     if (image_path.empty()) {
-        ESP_LOGE("FaceRec", "Failed to upload search image to HTTP server");
+        ESP_LOGE("FaceRec", "Failed to upload search image to FTP server");
         Alert(Lang::Strings::ERROR, "搜索图片上传失败", "sad", Lang::Sounds::P3_EXCLAMATION);
         return "";
     }
