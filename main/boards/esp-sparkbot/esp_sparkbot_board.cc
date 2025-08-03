@@ -1,5 +1,5 @@
 #include "wifi_board.h"
-#include "audio_codecs/es8311_audio_codec.h"
+#include "codecs/es8311_audio_codec.h"
 #include "display/lcd_display.h"
 #include "font_awesome_symbols.h"
 #include "application.h"
@@ -7,7 +7,6 @@
 #include "config.h"
 #include "mcp_server.h"
 #include "settings.h"
-#include "esp_spiffs.h"
 
 #include <wifi_station.h>
 #include <esp_log.h>
@@ -16,7 +15,6 @@
 #include <driver/spi_common.h>
 #include <driver/uart.h>
 #include <cstring>
-#include <dirent.h>
 
 #include "esp32_camera.h"
 #include "mbedtls/md.h"
@@ -65,19 +63,6 @@ private:
     Display* display_;
     Esp32Camera* camera_;
     light_mode_t light_mode_ = LIGHT_MODE_ALWAYS_ON;
-
-    // void init_spiffs() {
-    //     esp_vfs_spiffs_conf_t conf = {
-    //         .base_path = "/spiffs",
-    //         .partition_label = NULL,
-    //         .max_files = 5,
-    //         .format_if_mount_failed = true
-    //     };
-    //     esp_err_t ret = esp_vfs_spiffs_register(&conf);
-    //     if (ret != ESP_OK) {
-    //         ESP_LOGE("SPIFFS", "Failed to mount or format filesystem");
-    //     }
-    // }
 
     void InitializeI2c() {
         // Initialize I2C peripheral
@@ -224,24 +209,6 @@ private:
 
         SendUartMessage("w2");
     }
-
-    //将gpio36 37 初始化成串口0 
-    // void InitializeConsoleUart() {
-    //     uart_config_t uart_config = {
-    //         .baud_rate = 115200,
-    //         .data_bits = UART_DATA_8_BITS,
-    //         .parity    = UART_PARITY_DISABLE,
-    //         .stop_bits = UART_STOP_BITS_1,
-    //         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-    //         .source_clk = UART_SCLK_DEFAULT,
-    //     };
-    //     int intr_alloc_flags = 0;
-
-    //     ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, BUF_SIZE * 2, 0, 0, NULL, intr_alloc_flags));
-    //     ESP_ERROR_CHECK(uart_param_config(UART_NUM_0, &uart_config));
-    //     //ESP_ERROR_CHECK(uart_set_pin(UART_NUM_0, GPIO_NUM_36, GPIO_NUM_37, -1, -1));
-    //     ESP_ERROR_CHECK(uart_set_pin(UART_NUM_0, GPIO_NUM_19, GPIO_NUM_20, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
-    // }
 
     void SendUartMessage(const char * command_str) {
         uint8_t len = strlen(command_str);

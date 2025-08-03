@@ -9,12 +9,7 @@
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-#include <esp_http.h>
-#include <esp_mqtt.h>
-#include <esp_udp.h>
-#include <tcp_transport.h>
-#include <tls_transport.h>
-#include <web_socket.h>
+#include <esp_network.h>
 #include <esp_log.h>
 
 #include <wifi_station.h>
@@ -56,8 +51,15 @@ void WifiBoard::EnterWifiConfigMode() {
     // 播报配置 WiFi 的提示
     application.Alert(Lang::Strings::WIFI_CONFIG_MODE, hint.c_str(), "", Lang::Sounds::P3_WIFICONFIG);
 
-    #if USE_ACOUSTIC_WIFI_PROVISIONING
-    audio_wifi_config::ReceiveWifiCredentialsFromAudio(&application, &wifi_ap);
+    #if CONFIG_USE_ACOUSTIC_WIFI_PROVISIONING
+    auto display = Board::GetInstance().GetDisplay();
+    auto codec = Board::GetInstance().GetAudioCodec();
+    int channel = 1;
+    if (codec) {
+        channel = codec->input_channels();
+    }
+    ESP_LOGI(TAG, "Start receiving WiFi credentials from audio, input channels: %d", channel);
+    audio_wifi_config::ReceiveWifiCredentialsFromAudio(&application, &wifi_ap, display, channel);
     #endif
     
     // Wait forever until reset after configuration
@@ -88,7 +90,6 @@ void WifiBoard::StartNetwork() {
     auto& wifi_station = WifiStation::GetInstance();
     wifi_station.OnScanBegin([this]() {
         auto display = Board::GetInstance().GetDisplay();
-        if(display)
         display->ShowNotification(Lang::Strings::SCANNING_WIFI, 30000);
     });
     wifi_station.OnConnect([this](const std::string& ssid) {
@@ -96,14 +97,12 @@ void WifiBoard::StartNetwork() {
         std::string notification = Lang::Strings::CONNECT_TO;
         notification += ssid;
         notification += "...";
-        if(display)
         display->ShowNotification(notification.c_str(), 30000);
     });
     wifi_station.OnConnected([this](const std::string& ssid) {
         auto display = Board::GetInstance().GetDisplay();
         std::string notification = Lang::Strings::CONNECTED_TO;
         notification += ssid;
-        if(display)
         display->ShowNotification(notification.c_str(), 30000);
     });
     wifi_station.Start();
@@ -117,27 +116,9 @@ void WifiBoard::StartNetwork() {
     }
 }
 
-Http* WifiBoard::CreateHttp() {
-    return new EspHttp();
-}
-
-WebSocket* WifiBoard::CreateWebSocket() {
-    Settings settings("websocket", false);
-    std::string url = settings.GetString("url");
-    if (url.find("wss://") == 0) {
-        return new WebSocket(new TlsTransport());
-    } else {
-        return new WebSocket(new TcpTransport());
-    }
-    return nullptr;
-}
-
-Mqtt* WifiBoard::CreateMqtt() {
-    return new EspMqtt();
-}
-
-Udp* WifiBoard::CreateUdp() {
-    return new EspUdp();
+NetworkInterface* WifiBoard::GetNetwork() {
+    static EspNetwork network;
+    return &network;
 }
 
 const char* WifiBoard::GetNetworkStateIcon() {
@@ -186,9 +167,7 @@ void WifiBoard::ResetWifiConfiguration() {
         Settings settings("wifi", true);
         settings.SetInt("force_ap", 1);
     }
-    const auto& display = GetDisplay();
-    if(display)
-    display->ShowNotification(Lang::Strings::ENTERING_WIFI_CONFIG_MODE);
+    GetDisplay()->ShowNotification(Lang::Strings::ENTERING_WIFI_CONFIG_MODE);
     vTaskDelay(pdMS_TO_TICKS(1000));
     // Reboot the device
     esp_restart();
@@ -243,6 +222,7 @@ std::string WifiBoard::GetDeviceStatusJson() {
         cJSON_AddStringToObject(screen, "theme", display->GetTheme().c_str());
     }
     cJSON_AddItemToObject(root, "screen", screen);
+
     // Battery
     int battery_level = 0;
     bool charging = false;

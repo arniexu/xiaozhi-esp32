@@ -29,7 +29,6 @@ public:
     ~Esp32Camera();
 
     virtual void SetExplainUrl(const std::string& url, const std::string& token);
-    virtual bool CaptureAndSaveToSpiffs(const std::string& filename);
     virtual bool Capture();
     // 翻转控制函数
     virtual bool SetHMirror(bool enabled) override;

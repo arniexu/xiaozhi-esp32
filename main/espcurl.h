@@ -2,7 +2,7 @@
 #define _ESPCURL_H_
 
 #include <stdint.h>
-#include "curl.h"
+#include "curl/curl.h"
 //#include "quickmail/quickmail.h"
 
 #define MIN_HDR_BODY_BUF_LEN  1024
@@ -10,16 +10,16 @@
 #define GMAIL_PORT  465;
 #define BUILDING_LIBCURL 1
 
-// Some configuration variables
-uint8_t curl_verbose;   // show detailed info of what curl functions are doing
-uint8_t curl_progress;  // show progress during transfers
-uint16_t curl_timeout;  // curl operations timeout in seconds
-uint32_t curl_maxbytes; // limit download length
-uint8_t curl_initialized;
 
+// Some configuration variables (extern declarations)
+extern uint8_t curl_verbose;   // show detailed info of what curl functions are doing
+extern uint8_t curl_progress;  // show progress during transfers
+extern uint16_t curl_timeout;  // curl operations timeout in seconds
+extern uint32_t curl_maxbytes; // limit download length
+extern uint8_t curl_initialized;
 
-struct curl_httppost *formpost;
-struct curl_httppost *lastptr;
+extern struct curl_httppost *formpost;
+extern struct curl_httppost *lastptr;
 
 
 // ================
