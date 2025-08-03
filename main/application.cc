@@ -405,6 +405,18 @@ std::string base64_encode(const unsigned char* data, size_t len) {
 #define UPLOAD_URL "http://47.110.233.243:8003/api/upload/image"
 
 /**
+ * 生成安全的文件名（只包含英文字母、数字、下划线和连字符）
+ * @param prefix 文件名前缀
+ * @param suffix 文件名后缀（如 ".jpg"）
+ * @return 安全的文件名
+ */
+std::string GenerateSafeFilename(const std::string& prefix, const std::string& suffix = ".jpg") {
+    uint64_t timestamp = esp_timer_get_time();
+    uint32_t random = esp_random();
+    return prefix + "_" + std::to_string(timestamp) + "_" + std::to_string(random) + suffix;
+}
+
+/**
  * 通过FTP上传照片
  * @param fb 相机帧缓冲区
  * @param filename 文件名
@@ -443,14 +455,14 @@ std::string Application::UploadImageToFtp(camera_fb_t* fb, const std::string& fi
     }
 
     // FTP上传配置
-    #define FTP_SERVER "ftp://47.110.233.24/home/x3uqianjin/" 
+    #define FTP_SERVER "ftp://47.110.233.24/home/xuqianjin/" 
     #define FTP_USER_PASS "xuqianjin:123"  // 请修改为实际的FTP用户名密码
     
     std::string ftp_url = std::string(FTP_SERVER) + filename;
     
     // 分配缓冲区
-    char *hdrbuf = (char*)calloc(1024, 1);
-    char *bodybuf = (char*)calloc(4096, 1);
+    char *hdrbuf = (char*)calloc(256, 1);
+    char *bodybuf = (char*)calloc(512, 1);
     if (!hdrbuf || !bodybuf) {
         ESP_LOGE("UploadImageToFtp", "内存分配失败");
         if (hdrbuf) free(hdrbuf);
@@ -461,11 +473,11 @@ std::string Application::UploadImageToFtp(camera_fb_t* fb, const std::string& fi
 
     // 使用FTP上传文件
     int res = Curl_FTP(1, (char*)ftp_url.c_str(), (char*)FTP_USER_PASS, (char*)temp_file.c_str(), 
-                       hdrbuf, bodybuf, 1024, 4096);
+                       hdrbuf, bodybuf, 256, 512);
     
     std::string result_path;
     if (res == 0) {
-        result_path = std::string("/uploads/") + filename;
+        result_path = std::string("/home/xuqianjin/") + filename;
         ESP_LOGI("UploadImageToFtp", "图片已通过FTP上传: %s", result_path.c_str());
     } else {
         ESP_LOGE("UploadImageToFtp", "FTP上传失败: %d", res);
@@ -492,7 +504,7 @@ std::string Application::CreateFaceDB(const std::string& db_name) {
     cJSON* request = cJSON_CreateObject();
     cJSON* payload = cJSON_CreateObject();
     
-    cJSON_AddStringToObject(request, "type", "face_api");
+    cJSON_AddStringToObject(request, "type", "face");
     cJSON_AddStringToObject(payload, "action", "create_face_db");
     cJSON_AddStringToObject(payload, "db_name", db_name.c_str());
     cJSON_AddItemToObject(request, "payload", payload);
@@ -500,7 +512,7 @@ std::string Application::CreateFaceDB(const std::string& db_name) {
     char* json_string = cJSON_Print(request);
     ESP_LOGI("FaceRec", "Request JSON: %s", json_string);
     
-    std::string response = SendFaceApiRequest(json_string);
+    std::string response = SendFaceRequest(json_string);
     
     ESP_LOGI("FaceRec", "Response: %s", response.c_str());
     ESP_LOGI("FaceRec", "=== Create Face DB Complete ===");
@@ -521,7 +533,7 @@ std::string Application::ListFacesInAliyunDB() {
     cJSON* request = cJSON_CreateObject();
     cJSON* payload = cJSON_CreateObject();
     
-    cJSON_AddStringToObject(request, "type", "face_api");
+    cJSON_AddStringToObject(request, "type", "face");
     cJSON_AddStringToObject(payload, "action", "list_faces");
     cJSON_AddNumberToObject(payload, "limit", 100);
     cJSON_AddNumberToObject(payload, "offset", 0);
@@ -531,14 +543,14 @@ std::string Application::ListFacesInAliyunDB() {
     
     // 🔥 详细打印WebSocket请求构造信息
     ESP_LOGI("FaceRec", "=== Constructing List Faces WebSocket Request ===");
-    ESP_LOGI("FaceRec", "Request Type: face_api");
+    ESP_LOGI("FaceRec", "Request Type: face");
     ESP_LOGI("FaceRec", "Action: list_faces");
     ESP_LOGI("FaceRec", "Limit: 100");
     ESP_LOGI("FaceRec", "Offset: 0");
     ESP_LOGI("FaceRec", "Complete Request JSON: %s", json_string);
     ESP_LOGI("FaceRec", "=== Sending List Faces Request to WebSocket ===");
     
-    std::string response = SendFaceApiRequest(json_string);
+    std::string response = SendFaceRequest(json_string);
     
     ESP_LOGI("FaceRec", "Response length: %d bytes", response.length());
     ESP_LOGI("FaceRec", "Response: %s", response.c_str());
@@ -565,9 +577,8 @@ std::string Application::AddFaceToAliyunDB(const std::string& person_name, camer
         return "";
     }
 
-    // 生成唯一文件名
-    uint64_t timestamp = esp_timer_get_time();
-    std::string filename = "face_" + person_name + "_" + std::to_string(timestamp) + ".jpg";
+    // 生成安全的文件名 - 避免使用中文字符
+    std::string filename = GenerateSafeFilename("face");
     
     // 🔥 直接上传原始JPEG图片到FTP服务器
     std::string image_path = UploadImageToFtp(fb, filename);  // 🔥 变量名改为 image_path
@@ -581,7 +592,7 @@ std::string Application::AddFaceToAliyunDB(const std::string& person_name, camer
     cJSON* request = cJSON_CreateObject();
     cJSON* payload = cJSON_CreateObject();
     
-    cJSON_AddStringToObject(request, "type", "face_api");
+    cJSON_AddStringToObject(request, "type", "face");
     cJSON_AddStringToObject(payload, "action", "add_face");
     cJSON_AddStringToObject(payload, "person_name", person_name.c_str());
     // 🔥 修改：使用 image_path 而不是 image_url
@@ -592,14 +603,14 @@ std::string Application::AddFaceToAliyunDB(const std::string& person_name, camer
     
     // 🔥 详细打印WebSocket请求构造信息
     ESP_LOGI("FaceRec", "=== Constructing Add Face WebSocket Request ===");
-    ESP_LOGI("FaceRec", "Request Type: face_api");
+    ESP_LOGI("FaceRec", "Request Type: face");
     ESP_LOGI("FaceRec", "Action: add_face");
     ESP_LOGI("FaceRec", "Person Name: %s", person_name.c_str());
     ESP_LOGI("FaceRec", "Image Path: %s", image_path.c_str());
     ESP_LOGI("FaceRec", "Complete Request JSON: %s", json_string);
     ESP_LOGI("FaceRec", "=== Sending Add Face Request to WebSocket ===");
     
-    std::string response = SendFaceApiRequest(json_string);
+    std::string response = SendFaceRequest(json_string);
     
     ESP_LOGI("FaceRec", "Response: %s", response.c_str());
     ESP_LOGI("FaceRec", "=== Add Face Complete ===");
@@ -618,9 +629,8 @@ std::string Application::SearchFaceInAliyunDB(camera_fb_t* fb) {
         return "";
     }
 
-    // 生成临时文件名用于搜索
-    uint64_t timestamp = esp_timer_get_time();
-    std::string filename = "search_" + std::to_string(timestamp) + ".jpg";
+    // 生成安全的搜索文件名 - 避免使用中文字符
+    std::string filename = GenerateSafeFilename("search");
     
     // 🔥 直接上传原始JPEG图片到FTP服务器
     std::string image_path = UploadImageToFtp(fb, filename);  // 🔥 变量名改为 image_path
@@ -634,7 +644,7 @@ std::string Application::SearchFaceInAliyunDB(camera_fb_t* fb) {
     cJSON* request = cJSON_CreateObject();
     cJSON* payload = cJSON_CreateObject();
     
-    cJSON_AddStringToObject(request, "type", "face_api");
+    cJSON_AddStringToObject(request, "type", "face");
     cJSON_AddStringToObject(payload, "action", "search_face");
     // 🔥 修改：使用 image_path 而不是 image_url
     cJSON_AddStringToObject(payload, "image_path", image_path.c_str());
@@ -646,7 +656,7 @@ std::string Application::SearchFaceInAliyunDB(camera_fb_t* fb) {
     
     // 🔥 详细打印WebSocket请求构造信息
     ESP_LOGI("FaceRec", "=== Constructing Search Face WebSocket Request ===");
-    ESP_LOGI("FaceRec", "Request Type: face_api");
+    ESP_LOGI("FaceRec", "Request Type: face");
     ESP_LOGI("FaceRec", "Action: search_face");
     ESP_LOGI("FaceRec", "Image Path: %s", image_path.c_str());
     ESP_LOGI("FaceRec", "Search Limit: 5");
@@ -654,7 +664,7 @@ std::string Application::SearchFaceInAliyunDB(camera_fb_t* fb) {
     ESP_LOGI("FaceRec", "Complete Request JSON: %s", json_string);
     ESP_LOGI("FaceRec", "=== Sending Search Face Request to WebSocket ===");
     
-    std::string response = SendFaceApiRequest(json_string);
+    std::string response = SendFaceRequest(json_string);
     
     ESP_LOGI("FaceRec", "Response: %s", response.c_str());
     ESP_LOGI("FaceRec", "=== Search Face Complete ===");
@@ -664,8 +674,8 @@ std::string Application::SearchFaceInAliyunDB(camera_fb_t* fb) {
     return response;
 }
 
-std::string Application::SendFaceApiRequest(const std::string& json_request) {
-    ESP_LOGI("FaceRec", "=== SendFaceApiRequest START ===");
+std::string Application::SendFaceRequest(const std::string& json_request) {
+    ESP_LOGI("FaceRec", "=== SendFaceRequest START ===");
     
     if (!protocol_) {
         ESP_LOGE("FaceRec", "Protocol not initialized");
@@ -701,7 +711,7 @@ std::string Application::SendFaceApiRequest(const std::string& json_request) {
     free(updated_json);
     cJSON_Delete(json_obj);
 
-    std::string response = WaitForFaceApiResponse(request_id, 30);
+    std::string response = WaitForFaceResponse(request_id, 30);
     
     if (response.empty()) {
         ESP_LOGE("FaceRec", "No response received");
@@ -709,7 +719,7 @@ std::string Application::SendFaceApiRequest(const std::string& json_request) {
         ESP_LOGI("FaceRec", "Response received: %d bytes", response.length());
     }
     
-    ESP_LOGI("FaceRec", "=== SendFaceApiRequest END ===");
+    ESP_LOGI("FaceRec", "=== SendFaceRequest END ===");
     return response;
 }
 
@@ -892,39 +902,39 @@ std::string Application::ParseSearchFaceResult(const std::string& response) {
 }
 
 // 存储人脸API响应
-void Application::StoreFaceApiResponse(const std::string& request_id, const std::string& response) {
+void Application::StoreFaceResponse(const std::string& request_id, const std::string& response) {
     ESP_LOGI("FaceRec", "Storing response for request ID: %s", request_id.c_str());
     ESP_LOGD("FaceRec", "Response content: %s", response.c_str());
     
     {
-        std::lock_guard<std::mutex> lock(face_api_mutex_);
+        std::lock_guard<std::mutex> lock(face_mutex_);
         
         // 存储响应数据
-        face_api_responses_[request_id] = response;
+        face_responses_[request_id] = response;
         
         ESP_LOGI("FaceRec", "Response stored successfully. Current pending responses: %zu", 
-                 face_api_responses_.size());
+                 face_responses_.size());
     }
     
     // 通知所有等待的线程
-    face_api_cv_.notify_all();
+    face_cv_.notify_all();
     ESP_LOGI("FaceRec", "Notified waiting threads for request ID: %s", request_id.c_str());
 }
 
 // 等待人脸API响应
-std::string Application::WaitForFaceApiResponse(const std::string& request_id, int timeout_seconds) {
+std::string Application::WaitForFaceResponse(const std::string& request_id, int timeout_seconds) {
     ESP_LOGI("FaceRec", "Waiting for response with ID: %s (timeout: %ds)", 
              request_id.c_str(), timeout_seconds);
     
-    std::unique_lock<std::mutex> lock(face_api_mutex_);
+    std::unique_lock<std::mutex> lock(face_mutex_);
     
     // 使用条件变量等待响应
-    bool received = face_api_cv_.wait_for(
+    bool received = face_cv_.wait_for(
         lock, 
         std::chrono::seconds(timeout_seconds),
         [this, &request_id] {
             // 检查是否收到了对应的响应
-            bool found = face_api_responses_.find(request_id) != face_api_responses_.end();
+            bool found = face_responses_.find(request_id) != face_responses_.end();
             if (found) {
                 ESP_LOGD("FaceRec", "Response found for request ID: %s", request_id.c_str());
             }
@@ -934,12 +944,12 @@ std::string Application::WaitForFaceApiResponse(const std::string& request_id, i
     
     if (received) {
         // 获取响应并清理
-        std::string response = face_api_responses_[request_id];
-        face_api_responses_.erase(request_id);
+        std::string response = face_responses_[request_id];
+        face_responses_.erase(request_id);
         
         ESP_LOGI("FaceRec", "Response retrieved for request ID: %s, length: %d bytes", 
                  request_id.c_str(), response.length());
-        ESP_LOGI("FaceRec", "Remaining pending responses: %zu", face_api_responses_.size());
+        ESP_LOGI("FaceRec", "Remaining pending responses: %zu", face_responses_.size());
         
         return response;
     } else {
@@ -948,10 +958,10 @@ std::string Application::WaitForFaceApiResponse(const std::string& request_id, i
                  request_id.c_str(), timeout_seconds);
         
         // 清理可能的残留数据
-        auto it = face_api_responses_.find(request_id);
-        if (it != face_api_responses_.end()) {
+        auto it = face_responses_.find(request_id);
+        if (it != face_responses_.end()) {
             ESP_LOGW("FaceRec", "Found stale response for request ID: %s, cleaning up", request_id.c_str());
-            face_api_responses_.erase(it);
+            face_responses_.erase(it);
         }
         
         return "";
@@ -960,12 +970,12 @@ std::string Application::WaitForFaceApiResponse(const std::string& request_id, i
 
 // 清理过期的响应（可选的辅助函数）
 void Application::CleanupExpiredResponses() {
-    std::lock_guard<std::mutex> lock(face_api_mutex_);
+    std::lock_guard<std::mutex> lock(face_mutex_);
     
-    if (face_api_responses_.size() > 10) {  // 如果积累太多响应
+    if (face_responses_.size() > 10) {  // 如果积累太多响应
         ESP_LOGW("FaceRec", "Too many pending responses (%zu), clearing all", 
-                 face_api_responses_.size());
-        face_api_responses_.clear();
+                 face_responses_.size());
+        face_responses_.clear();
     }
 }
 
@@ -1129,8 +1139,8 @@ void Application::Start() {
             } else {
                 ESP_LOGW(TAG, "Alert command requires status, message and emotion");
             }
-        } else if (strcmp(type->valuestring, "face_api_response") == 0) {
-            ESP_LOGI("FaceRec", "=== Received face_api_response ===");
+        } else if (strcmp(type->valuestring, "face_response") == 0) {
+            ESP_LOGI("FaceRec", "=== Received face_response ===");
             
             auto request_id = cJSON_GetObjectItem(root, "request_id");
             auto payload = cJSON_GetObjectItem(root, "payload");
@@ -1142,11 +1152,11 @@ void Application::Start() {
                 ESP_LOGI("FaceRec", "Processing response for request ID: %s", response_id.c_str());
                 ESP_LOGD("FaceRec", "Payload: %s", payload_str);
                 
-                StoreFaceApiResponse(response_id, payload_str);
+                StoreFaceResponse(response_id, payload_str);
                 
                 free(payload_str);
             }
-            ESP_LOGI("FaceRec", "=== face_api_response processed ===");
+            ESP_LOGI("FaceRec", "=== face_response processed ===");
         } else {
             ESP_LOGW(TAG, "Unknown message type: %s", type->valuestring);
         }

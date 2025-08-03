@@ -97,19 +97,20 @@ private:
 
     
     // 人脸API响应管理
-    std::map<std::string, std::string> face_api_responses_;
-    std::mutex face_api_mutex_;
-    std::condition_variable face_api_cv_;
+    std::map<std::string, std::string> face_responses_;
+    std::mutex face_mutex_;
+    std::condition_variable face_cv_;
     
     void OnWakeWordDetected();
     void CheckNewVersion(Ota& ota);
     void ShowActivationCode(const std::string& code, const std::string& message);
     void OnClockTimer();
     void SetListeningMode(ListeningMode mode);
-    std::string SendFaceApiRequest(const std::string& json_request);
-    void StoreFaceApiResponse(const std::string& request_id, const std::string& response);
-    std::string WaitForFaceApiResponse(const std::string& request_id, int timeout_seconds);
+    std::string SendFaceRequest(const std::string& json_request);
+    void StoreFaceResponse(const std::string& request_id, const std::string& response);
+    std::string WaitForFaceResponse(const std::string& request_id, int timeout_seconds);
     void CleanupExpiredResponses();
+    std::string GenerateSafeFilename(const std::string& base_name, const std::string& suffix = "");
 };
 
 #endif // _APPLICATION_H_
