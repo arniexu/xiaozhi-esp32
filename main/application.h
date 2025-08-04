@@ -62,6 +62,7 @@ public:
     AecMode GetAecMode() const { return aec_mode_; }
     // 阿里云人脸数据库相关方法
     std::string whoareyou();
+    std::string GenerateSafeFilename(const std::string& base_name, const std::string& suffix = "");
     
     // 其他可能需要的方法
     std::string CreateFaceDB(const std::string& db_name);
@@ -110,7 +111,6 @@ private:
     void StoreFaceResponse(const std::string& request_id, const std::string& response);
     std::string WaitForFaceResponse(const std::string& request_id, int timeout_seconds);
     void CleanupExpiredResponses();
-    std::string GenerateSafeFilename(const std::string& base_name, const std::string& suffix = "");
 };
 
 #endif // _APPLICATION_H_

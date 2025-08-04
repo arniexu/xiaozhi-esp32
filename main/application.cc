@@ -349,6 +349,8 @@ void Application::StopListening() {
 #include <iomanip>
 #include <fstream>
 #include <dirent.h>
+#include <sys/stat.h>
+#include <errno.h>
 #include "espcurl.h"
 #include "cJSON.h"
 
@@ -406,14 +408,18 @@ std::string base64_encode(const unsigned char* data, size_t len) {
 
 /**
  * 生成安全的文件名（只包含英文字母、数字、下划线和连字符）
- * @param prefix 文件名前缀
+ * @param base_name 文件名基础部分
  * @param suffix 文件名后缀（如 ".jpg"）
  * @return 安全的文件名
  */
-std::string GenerateSafeFilename(const std::string& prefix, const std::string& suffix = ".jpg") {
-    uint64_t timestamp = esp_timer_get_time();
+std::string Application::GenerateSafeFilename(const std::string& base_name, const std::string& suffix) {
+    uint64_t timestamp = esp_timer_get_time() / 1000;  // 转换为毫秒
     uint32_t random = esp_random();
-    return prefix + "_" + std::to_string(timestamp) + "_" + std::to_string(random) + suffix;
+    
+    // 如果没有指定后缀，默认使用 .jpg
+    std::string file_suffix = suffix.empty() ? ".jpg" : suffix;
+    
+    return base_name + "_" + std::to_string(timestamp) + "_" + std::to_string(random) + file_suffix;
 }
 
 /**
@@ -437,56 +443,166 @@ std::string Application::UploadImageToFtp(camera_fb_t* fb, const std::string& fi
 
     ESP_LOGI("UploadImageToFtp", "准备FTP上传图片: %s (大小: %u 字节)", filename.c_str(), fb->len);
 
-    // 先将图片保存到本地临时文件
-    std::string temp_file = "/storage/" + filename;
-    FILE* file = fopen(temp_file.c_str(), "wb");
-    if (!file) {
-        ESP_LOGE("UploadImageToFtp", "无法创建临时文件: %s", temp_file.c_str());
-        return "";
+    // 检查存储分区是否已挂载
+    DIR* storage_dir = opendir("/storage");
+    if (storage_dir) {
+        closedir(storage_dir);
+        ESP_LOGI("UploadImageToFtp", "✅ /storage 目录可访问");
+    } else {
+        ESP_LOGW("UploadImageToFtp", "⚠️ /storage 目录不可访问, errno: %d (%s)", errno, strerror(errno));
     }
 
+    // 使用基于文件的上传方式 - 优先使用已挂载的 /storage 分区
+    std::string temp_file;
+    FILE* file = nullptr;
+    
+    // 首先尝试使用 /storage 分区（SPIFFS）
+    const std::string storage_path = "/storage/" + filename;
+    ESP_LOGI("UploadImageToFtp", "尝试创建文件: %s", storage_path.c_str());
+    file = fopen(storage_path.c_str(), "wb");
+    if (file) {
+        temp_file = storage_path;
+        ESP_LOGI("UploadImageToFtp", "✅ 成功创建临时文件: %s", temp_file.c_str());
+    } else {
+        ESP_LOGW("UploadImageToFtp", "❌ /storage 路径失败 (errno: %d), 尝试其他路径...", errno);
+        
+        // 备用路径策略
+        const std::vector<std::string> temp_paths = {
+            "/tmp/" + filename,           // RAM 临时文件系统
+            "/data/" + filename,          // 数据分区
+            "/cache/" + filename          // 缓存目录
+        };
+        
+        for (const auto& path : temp_paths) {
+            ESP_LOGI("UploadImageToFtp", "尝试创建文件: %s", path.c_str());
+            file = fopen(path.c_str(), "wb");
+            if (file) {
+                temp_file = path;
+                ESP_LOGI("UploadImageToFtp", "✅ 成功创建临时文件: %s", temp_file.c_str());
+                break;
+            }
+            ESP_LOGW("UploadImageToFtp", "❌ 路径失败: %s (errno: %d)", path.c_str(), errno);
+        }
+    }
+    
+    if (!file) {
+        ESP_LOGE("UploadImageToFtp", "❌ 无法创建临时文件，上传失败");
+        return "";
+    }
+    
+    // 写入图片数据到临时文件
     size_t written = fwrite(fb->buf, 1, fb->len, file);
     fclose(file);
     
     if (written != fb->len) {
-        ESP_LOGE("UploadImageToFtp", "写入临时文件失败");
+        ESP_LOGE("UploadImageToFtp", "❌ 写入临时文件失败: 期望 %d 字节，实际写入 %d 字节", fb->len, written);
         remove(temp_file.c_str());
         return "";
     }
+    
+    ESP_LOGI("UploadImageToFtp", "✅ 图片数据已写入临时文件: %d 字节", written);
 
-    // FTP上传配置
-    #define FTP_SERVER "ftp://47.110.233.24/home/xuqianjin/" 
+    // FTP上传配置 - 直接使用文件名，不需要路径前缀
+    #define FTP_SERVER "ftp://47.110.233.243/" 
     #define FTP_USER_PASS "xuqianjin:123"  // 请修改为实际的FTP用户名密码
     
     std::string ftp_url = std::string(FTP_SERVER) + filename;
+    ESP_LOGI("UploadImageToFtp", "FTP URL: %s", ftp_url.c_str());
     
-    // 分配缓冲区
-    char *hdrbuf = (char*)calloc(256, 1);
-    char *bodybuf = (char*)calloc(512, 1);
+    // 分配缓冲区 - 使用堆分配而不是栈分配以节省栈空间
+    char *hdrbuf = (char*)heap_caps_calloc(1024, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    char *bodybuf = (char*)heap_caps_calloc(2048, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    
+    // 如果PSRAM分配失败，回退到内部RAM
+    if (!hdrbuf) hdrbuf = (char*)calloc(1024, 1);
+    if (!bodybuf) bodybuf = (char*)calloc(2048, 1);
+    
     if (!hdrbuf || !bodybuf) {
         ESP_LOGE("UploadImageToFtp", "内存分配失败");
         if (hdrbuf) free(hdrbuf);
         if (bodybuf) free(bodybuf);
-        remove(temp_file.c_str());
+        if (!temp_file.empty()) remove(temp_file.c_str());
         return "";
     }
 
     // 使用FTP上传文件
-    int res = Curl_FTP(1, (char*)ftp_url.c_str(), (char*)FTP_USER_PASS, (char*)temp_file.c_str(), 
-                       hdrbuf, bodybuf, 256, 512);
+    ESP_LOGI("UploadImageToFtp", "开始FTP上传...");
+    ESP_LOGI("UploadImageToFtp", "FTP服务器: 47.110.233.243");
+    ESP_LOGI("UploadImageToFtp", "用户名: xuqianjin");
+    ESP_LOGI("UploadImageToFtp", "本地文件: %s", temp_file.c_str());
+    ESP_LOGI("UploadImageToFtp", "远程文件名: %s", filename.c_str());
+    
+    // 尝试FTP上传，如果失败则进行重试
+    int res = -1;
+    const int MAX_FTP_RETRIES = 3;
+    int retry_count = 0;
+    
+    while (retry_count < MAX_FTP_RETRIES && res != 0) {
+        if (retry_count > 0) {
+            ESP_LOGW("UploadImageToFtp", "重试FTP上传 (%d/%d)...", retry_count + 1, MAX_FTP_RETRIES);
+            vTaskDelay(pdMS_TO_TICKS(2000));  // 等待2秒后重试
+            
+            // 清空缓冲区
+            memset(hdrbuf, 0, 1024);
+            memset(bodybuf, 0, 2048);
+        }
+        
+        res = Curl_FTP(1, (char*)ftp_url.c_str(), (char*)FTP_USER_PASS, (char*)temp_file.c_str(), 
+                       hdrbuf, bodybuf, 1024, 2048);
+        
+        if (res != 0) {
+            ESP_LOGW("UploadImageToFtp", "第%d次FTP上传失败: 错误代码=%d", retry_count + 1, res);
+            ESP_LOGW("UploadImageToFtp", "FTP错误头: %s", hdrbuf);
+            ESP_LOGW("UploadImageToFtp", "FTP错误体: %s", bodybuf);
+        }
+        
+        retry_count++;
+    }
     
     std::string result_path;
     if (res == 0) {
         result_path = std::string("/home/xuqianjin/") + filename;
-        ESP_LOGI("UploadImageToFtp", "图片已通过FTP上传: %s", result_path.c_str());
+        ESP_LOGI("UploadImageToFtp", "✅ 图片已通过FTP上传: %s", result_path.c_str());
+        ESP_LOGI("UploadImageToFtp", "FTP响应头: %s", hdrbuf);
+        if (retry_count > 1) {
+            ESP_LOGI("UploadImageToFtp", "✅ 重试成功: 共尝试%d次", retry_count);
+        }
     } else {
-        ESP_LOGE("UploadImageToFtp", "FTP上传失败: %d", res);
+        ESP_LOGE("UploadImageToFtp", "❌ FTP上传最终失败: 错误代码=%d (尝试%d次)", res, retry_count);
+        ESP_LOGE("UploadImageToFtp", "FTP最终错误头: %s", hdrbuf);
+        ESP_LOGE("UploadImageToFtp", "FTP最终错误体: %s", bodybuf);
+        
+        // 分析错误类型
+        if (strstr(bodybuf, "Couldn't connect to server") != nullptr) {
+            ESP_LOGE("UploadImageToFtp", "🔍 诊断: 无法连接到FTP数据端口 - 可能是被动模式问题");
+            ESP_LOGE("UploadImageToFtp", "🔍 建议: 检查FTP服务器被动模式配置或防火墙设置");
+        } else if (strstr(bodybuf, "Software caused connection abort") != nullptr) {
+            ESP_LOGE("UploadImageToFtp", "🔍 诊断: 连接被中断 - 可能是网络超时或服务器配置问题");
+        }
+        
+        // 打印详细的错误信息
+        switch(-res) {  // res是负数，所以取反
+            case 6: ESP_LOGE("UploadImageToFtp", "错误类型: 无法解析主机名"); break;
+            case 7: ESP_LOGE("UploadImageToFtp", "错误类型: 无法连接到服务器 (CURLE_COULDNT_CONNECT)"); break;
+            case 26: ESP_LOGE("UploadImageToFtp", "错误类型: 读取本地文件错误"); break;
+            case 67: ESP_LOGE("UploadImageToFtp", "错误类型: FTP认证失败"); break;
+            case 78: ESP_LOGE("UploadImageToFtp", "错误类型: 远程文件未找到或权限不足"); break;
+            default: ESP_LOGE("UploadImageToFtp", "错误类型: 未知FTP错误"); break;
+        }
     }
     
     // 清理资源
-    free(hdrbuf);
-    free(bodybuf);
-    remove(temp_file.c_str());  // 删除临时文件
+    if (hdrbuf) free(hdrbuf);
+    if (bodybuf) free(bodybuf);
+    
+    // 清理临时文件 (无论是否存在)
+    if (!temp_file.empty()) {
+        if (remove(temp_file.c_str()) == 0) {
+            ESP_LOGI("UploadImageToFtp", "🗑️ 临时文件清理成功: %s", temp_file.c_str());
+        } else {
+            ESP_LOGW("UploadImageToFtp", "⚠️ 临时文件清理失败: %s", temp_file.c_str());
+        }
+    }
     
     return result_path;
 }
@@ -534,7 +650,7 @@ std::string Application::ListFacesInAliyunDB() {
     cJSON* payload = cJSON_CreateObject();
     
     cJSON_AddStringToObject(request, "type", "face");
-    cJSON_AddStringToObject(payload, "action", "list_faces");
+    cJSON_AddStringToObject(payload, "action", "list_people");
     cJSON_AddNumberToObject(payload, "limit", 100);
     cJSON_AddNumberToObject(payload, "offset", 0);
     cJSON_AddItemToObject(request, "payload", payload);
@@ -581,7 +697,7 @@ std::string Application::AddFaceToAliyunDB(const std::string& person_name, camer
     std::string filename = GenerateSafeFilename("face");
     
     // 🔥 直接上传原始JPEG图片到FTP服务器
-    std::string image_path = UploadImageToFtp(fb, filename);  // 🔥 变量名改为 image_path
+    std::string image_path = UploadImageToFtp(fb, filename);
     if (image_path.empty()) {
         ESP_LOGE("FaceRec", "Failed to upload image to FTP server");
         Alert(Lang::Strings::ERROR, "图片上传失败", "sad", Lang::Sounds::P3_EXCLAMATION);
@@ -633,7 +749,7 @@ std::string Application::SearchFaceInAliyunDB(camera_fb_t* fb) {
     std::string filename = GenerateSafeFilename("search");
     
     // 🔥 直接上传原始JPEG图片到FTP服务器
-    std::string image_path = UploadImageToFtp(fb, filename);  // 🔥 变量名改为 image_path
+    std::string image_path = UploadImageToFtp(fb, filename);
     if (image_path.empty()) {
         ESP_LOGE("FaceRec", "Failed to upload search image to FTP server");
         Alert(Lang::Strings::ERROR, "搜索图片上传失败", "sad", Lang::Sounds::P3_EXCLAMATION);

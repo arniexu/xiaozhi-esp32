@@ -83,6 +83,8 @@ private:
     }
 
     void MountStorage() {
+        ESP_LOGI(TAG, "=== Mounting Storage Partition ===");
+        
         // Mount the storage partition
         esp_vfs_spiffs_conf_t conf = {
             .base_path = "/storage",
@@ -91,24 +93,38 @@ private:
             .format_if_mount_failed = true,
         };
         
+        ESP_LOGI(TAG, "Attempting to mount SPIFFS partition 'storage' at '/storage'");
         esp_err_t ret = esp_vfs_spiffs_register(&conf);
         if (ret != ESP_OK) {
             if (ret == ESP_FAIL) {
-                ESP_LOGE(TAG, "Failed to mount or format filesystem");
+                ESP_LOGE(TAG, "❌ Failed to mount or format filesystem");
             } else if (ret == ESP_ERR_NOT_FOUND) {
-                ESP_LOGE(TAG, "Failed to find SPIFFS partition 'storage'");
+                ESP_LOGE(TAG, "❌ Failed to find SPIFFS partition 'storage' - check partition table");
             } else {
-                ESP_LOGE(TAG, "Failed to initialize SPIFFS (%s)", esp_err_to_name(ret));
+                ESP_LOGE(TAG, "❌ Failed to initialize SPIFFS (%s)", esp_err_to_name(ret));
             }
             return;
         }
         
+        ESP_LOGI(TAG, "✅ SPIFFS mounted successfully");
+        
         size_t total = 0, used = 0;
         ret = esp_spiffs_info("storage", &total, &used);
         if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to get SPIFFS partition information (%s)", esp_err_to_name(ret));
+            ESP_LOGE(TAG, "❌ Failed to get SPIFFS partition information (%s)", esp_err_to_name(ret));
         } else {
-            ESP_LOGI(TAG, "Storage partition size: total: %d KB, used: %d KB", total / 1024, used / 1024);
+            ESP_LOGI(TAG, "📊 Storage partition size: total: %d KB, used: %d KB", total / 1024, used / 1024);
+        }
+        
+        // Test write access
+        FILE* test_file = fopen("/storage/test.txt", "w");
+        if (test_file) {
+            fprintf(test_file, "test");
+            fclose(test_file);
+            remove("/storage/test.txt");
+            ESP_LOGI(TAG, "✅ Storage write test successful");
+        } else {
+            ESP_LOGE(TAG, "❌ Storage write test failed");
         }
     }
 void InitializeSpi() {

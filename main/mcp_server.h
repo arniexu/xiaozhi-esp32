@@ -273,6 +273,7 @@ private:
 
     void GetToolsList(int id, const std::string& cursor);
     void DoToolCall(int id, const std::string& tool_name, const cJSON* tool_arguments, int stack_size);
+    int GetRecommendedStackSize(const std::string& tool_name);
 
     std::vector<McpTool*> tools_;
     std::thread tool_call_thread_;
