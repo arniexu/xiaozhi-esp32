@@ -516,7 +516,7 @@ std::string Application::CreateImageFile(camera_fb_t* fb, const std::string& fil
         size_t chunk_written = fwrite(data_ptr, 1, to_write, file);
         
         if (chunk_written != to_write) {
-            ESP_LOGE("CreateImageFile", "❌ 分块写入失败: 期望 %zu，实际 %zu (errno: %d, %s)", 
+            ESP_LOGE("CreateImageFile", "❌ 分块写入失败: 期望 %u，实际 %u (errno: %d, %s)", 
                      to_write, chunk_written, errno, strerror(errno));
             fclose(file);
             remove(temp_file.c_str());
@@ -530,7 +530,7 @@ std::string Application::CreateImageFile(camera_fb_t* fb, const std::string& fil
         // 每写入一块就刷新缓冲区
         fflush(file);
         
-        ESP_LOGD("CreateImageFile", "已写入: %zu/%d 字节", total_written, fb->len);
+        ESP_LOGD("CreateImageFile", "已写入: %u/%d 字节", total_written, fb->len);
     }
     
     // 确保数据完全写入磁盘
@@ -540,7 +540,7 @@ std::string Application::CreateImageFile(camera_fb_t* fb, const std::string& fil
     fclose(file);
     
     if (total_written != fb->len) {
-        ESP_LOGE("CreateImageFile", "❌ 写入临时文件失败: 期望 %d 字节，实际写入 %zu 字节", fb->len, total_written);
+        ESP_LOGE("CreateImageFile", "❌ 写入临时文件失败: 期望 %d 字节，实际写入 %u 字节", fb->len, total_written);
         remove(temp_file.c_str());
         return "";
     }
@@ -1076,7 +1076,7 @@ std::string Application::ParseListFacesResult(const std::string& response) {
         }
     }
     
-    ESP_LOGI("FaceRec", "Total unique persons found: %zu", person_names.size());
+    ESP_LOGI("FaceRec", "Total unique persons found: %u", person_names.size());
     return result;
 }
 
