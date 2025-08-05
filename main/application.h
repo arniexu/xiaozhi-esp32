@@ -70,8 +70,8 @@ public:
     std::string ParseListFacesResult(const std::string& response);
     // 人脸识别相关函数
     std::string ListFacesInAliyunDB();
-    std::string AddFaceToAliyunDB(const std::string& person_name, camera_fb_t* fb);
-    std::string SearchFaceInAliyunDB(camera_fb_t* fb);
+    std::string AddFaceToAliyunDB(const std::string& person_name);
+    std::string SearchFaceInAliyunDB();
     std::string CreateImageFile(camera_fb_t* fb, const std::string& filename);
     std::string UploadImageToFtp(const std::string& local_file_path, const std::string& filename);
     void PlaySound(const std::string_view& sound);
@@ -102,6 +102,9 @@ private:
     std::map<std::string, std::string> face_responses_;
     std::mutex face_mutex_;
     std::condition_variable face_cv_;
+    
+    // 摄像头互斥锁，防止多线程同时使用摄像头
+    std::mutex camera_mutex_;
     
     void OnWakeWordDetected();
     void CheckNewVersion(Ota& ota);

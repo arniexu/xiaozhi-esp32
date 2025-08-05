@@ -751,10 +751,9 @@ std::string Application::ListFacesInAliyunDB() {
 }
 
 // 修改AddFaceToAliyunDB函数签名和实现
-std::string Application::AddFaceToAliyunDB(const std::string& person_name, camera_fb_t* fb) {
+std::string Application::AddFaceToAliyunDB(const std::string& person_name) {
     ESP_LOGI("FaceRec", "=== Adding Face to DB ===");
     ESP_LOGI("FaceRec", "Person name: %s", person_name.c_str());
-    ESP_LOGI("FaceRec", "Image size: %d bytes", fb->len);
     
     if (!protocol_) {
         ESP_LOGE("FaceRec", "Protocol not initialized");
@@ -766,19 +765,44 @@ std::string Application::AddFaceToAliyunDB(const std::string& person_name, camer
         return "";
     }
 
-    // 生成安全的文件名 - 避免使用中文字符
-    std::string filename = GenerateSafeFilename("face");
+    // 获取一帧摄像头数据 - 使用互斥锁保护摄像头访问
+    ESP_LOGI("FaceRec", "正在获取摄像头数据...");
     
-    // 先创建图片文件
-    std::string local_file_path = CreateImageFile(fb, filename);
-    if (local_file_path.empty()) {
-        ESP_LOGE("FaceRec", "Failed to create image file");
-        Alert(Lang::Strings::ERROR, "图片文件创建失败", "sad", Lang::Sounds::P3_EXCLAMATION);
-        return "";
+    camera_fb_t* fb = nullptr;
+    std::string local_file_path;
+    std::string filename;
+    
+    {
+        // 锁定摄像头，防止其他线程同时使用
+        std::lock_guard<std::mutex> camera_lock(camera_mutex_);
+        ESP_LOGI("FaceRec", "🔒 摄像头已锁定");
+        
+        fb = esp_camera_fb_get();
+        if (!fb) {
+            ESP_LOGE("FaceRec", "❌ 无法获取摄像头数据");
+            Alert(Lang::Strings::ERROR, "摄像头数据获取失败", "sad", Lang::Sounds::P3_EXCLAMATION);
+            return "";
+        }
+        
+        ESP_LOGI("FaceRec", "✅ 摄像头数据获取成功，图像大小: %d 字节", fb->len);
+
+        // 生成安全的文件名 - 避免使用中文字符
+        filename = GenerateSafeFilename("face");
+        
+        // 先创建图片文件
+        local_file_path = CreateImageFile(fb, filename);
+        if (local_file_path.empty()) {
+            ESP_LOGE("FaceRec", "Failed to create image file");
+            Alert(Lang::Strings::ERROR, "图片文件创建失败", "sad", Lang::Sounds::P3_EXCLAMATION);
+            esp_camera_fb_return(fb);
+            return "";
+        }
+        
+        // 释放framebuffer内存
+        esp_camera_fb_return(fb);
+        ESP_LOGI("FaceRec", "🔓 摄像头已释放");
     }
-    
-    // 释放framebuffer内存
-    esp_camera_fb_return(fb);
+    // 摄像头锁自动释放
     
     // 使用FTP上传图片
     std::string image_path = UploadImageToFtp(local_file_path, filename);
@@ -832,28 +856,52 @@ std::string Application::AddFaceToAliyunDB(const std::string& person_name, camer
     return response;
 }
 
-std::string Application::SearchFaceInAliyunDB(camera_fb_t* fb) {
+std::string Application::SearchFaceInAliyunDB() {
     ESP_LOGI("FaceRec", "=== Searching Face in DB ===");
-    ESP_LOGI("FaceRec", "Image size: %d bytes", fb->len);
     
     if (!protocol_) {
         ESP_LOGE("FaceRec", "Protocol not initialized");
         return "";
     }
 
-    // 生成安全的搜索文件名 - 避免使用中文字符
-    std::string filename = GenerateSafeFilename("search");
+    // 获取一帧摄像头数据 - 使用互斥锁保护摄像头访问
+    ESP_LOGI("FaceRec", "正在获取摄像头数据进行人脸搜索...");
     
-    // 先创建图片文件
-    std::string local_file_path = CreateImageFile(fb, filename);
-    if (local_file_path.empty()) {
-        ESP_LOGE("FaceRec", "Failed to create search image file");
-        Alert(Lang::Strings::ERROR, "搜索图片文件创建失败", "sad", Lang::Sounds::P3_EXCLAMATION);
-        return "";
+    camera_fb_t* fb = nullptr;
+    std::string local_file_path;
+    std::string filename;
+    
+    {
+        // 锁定摄像头，防止其他线程同时使用
+        std::lock_guard<std::mutex> camera_lock(camera_mutex_);
+        ESP_LOGI("FaceRec", "🔒 摄像头已锁定");
+        
+        fb = esp_camera_fb_get();
+        if (!fb) {
+            ESP_LOGE("FaceRec", "❌ 无法获取摄像头数据");
+            Alert(Lang::Strings::ERROR, "摄像头数据获取失败", "sad", Lang::Sounds::P3_EXCLAMATION);
+            return "";
+        }
+        
+        ESP_LOGI("FaceRec", "✅ 摄像头数据获取成功，图像大小: %d 字节", fb->len);
+
+        // 生成安全的搜索文件名 - 避免使用中文字符
+        filename = GenerateSafeFilename("search");
+        
+        // 先创建图片文件
+        local_file_path = CreateImageFile(fb, filename);
+        if (local_file_path.empty()) {
+            ESP_LOGE("FaceRec", "Failed to create search image file");
+            Alert(Lang::Strings::ERROR, "搜索图片文件创建失败", "sad", Lang::Sounds::P3_EXCLAMATION);
+            esp_camera_fb_return(fb);
+            return "";
+        }
+        
+        // 释放framebuffer内存
+        esp_camera_fb_return(fb);
+        ESP_LOGI("FaceRec", "🔓 摄像头已释放");
     }
-    
-    // 释放framebuffer内存
-    esp_camera_fb_return(fb);
+    // 摄像头锁自动释放
     
     // 使用FTP上传图片
     std::string image_path = UploadImageToFtp(local_file_path, filename);
@@ -960,36 +1008,11 @@ std::string Application::SendFaceRequest(const std::string& json_request) {
 
 std::string Application::whoareyou() {
     ESP_LOGI("FaceRec", "=== WHO ARE YOU - Starting Face Recognition ===");
-    ESP_LOGI("FaceRec", "Initializing camera capture...");
+    ESP_LOGI("FaceRec", "开始人脸识别...");
 
-    camera_fb_t* fb = esp_camera_fb_get();
-    if (!fb) {
-        ESP_LOGE("FaceRec", "Camera frame buffer is NULL");
-        Alert(Lang::Strings::ERROR, "Camera capture failed", "sad", Lang::Sounds::P3_EXCLAMATION);
-        return "";
-    }
-
-    if (!fb->buf || fb->len == 0) {
-        ESP_LOGE("FaceRec", "Camera buffer is invalid");
-        esp_camera_fb_return(fb);
-        Alert(Lang::Strings::ERROR, "Camera buffer error", "sad", Lang::Sounds::P3_EXCLAMATION);
-        return "";
-    }
-
-    ESP_LOGI("FaceRec", "Camera capture successful:");
-    ESP_LOGI("FaceRec", "  - Width: %d", fb->width);
-    ESP_LOGI("FaceRec", "  - Height: %d", fb->height);
-    ESP_LOGI("FaceRec", "  - Format: %d", fb->format);
-    ESP_LOGI("FaceRec", "  - Buffer length: %d bytes", fb->len);
-
-    // 🔥 直接使用相机帧缓冲区进行人脸搜索，无需base64编码
+    // 🔥 直接调用人脸搜索，函数内部会处理摄像头获取和释放
     ESP_LOGI("FaceRec", "Sending search request to backend server...");
-    std::string response = SearchFaceInAliyunDB(fb);
-
-    // 释放相机帧缓冲区
-    esp_camera_fb_return(fb);
-    ESP_LOGI("FaceRec", "Camera frame buffer returned");
-    // camera_lock自动释放
+    std::string response = SearchFaceInAliyunDB();
 
     if (response.empty()) {
         ESP_LOGE("FaceRec", "No response from server");

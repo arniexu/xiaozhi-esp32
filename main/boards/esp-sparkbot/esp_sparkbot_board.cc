@@ -627,16 +627,10 @@ void InitializeSpi() {
                 throw std::runtime_error("Person name is empty");
             }
             
-            // 拍照
-            camera_fb_t* fb = esp_camera_fb_get();
-            if (!fb || !fb->buf || fb->len == 0) {
-                esp_camera_fb_return(fb);
-                throw std::runtime_error("Camera capture failed");
-            }
-            ESP_LOGI("Camera", "Captured photo for person: %s", person_name.c_str());               
+            ESP_LOGI("Camera", "准备为 %s 添加人脸数据", person_name.c_str());               
             // 保存到阿里云人脸数据库
             auto& app = Application::GetInstance();
-            std::string response = app.AddFaceToAliyunDB(person_name, fb);
+            std::string response = app.AddFaceToAliyunDB(person_name);
             
             // 检查是否成功
             cJSON* root = cJSON_Parse(response.c_str());
@@ -648,7 +642,6 @@ void InitializeSpi() {
                 }
                 cJSON_Delete(root);
             }
-            esp_camera_fb_return(fb);
             if (success) {
                 ESP_LOGI("Camera", "Face saved to Aliyun DB for person: %s", person_name.c_str());
                 return true;
