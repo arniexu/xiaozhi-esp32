@@ -698,7 +698,7 @@ std::string Application::CreateFaceDB(const std::string& db_name) {
     cJSON_AddStringToObject(payload, "db_name", db_name.c_str());
     cJSON_AddItemToObject(request, "payload", payload);
     
-    char* json_string = cJSON_Print(request);
+    char* json_string = cJSON_PrintUnformatted(request);
     ESP_LOGI("FaceRec", "Request JSON: %s", json_string);
     
     std::string response = SendFaceRequest(json_string);
@@ -728,7 +728,7 @@ std::string Application::ListFacesInAliyunDB() {
     cJSON_AddNumberToObject(payload, "offset", 0);
     cJSON_AddItemToObject(request, "payload", payload);
     
-    char* json_string = cJSON_Print(request);
+    char* json_string = cJSON_PrintUnformatted(request);
     
     // 🔥 详细打印WebSocket请求构造信息
     ESP_LOGI("FaceRec", "=== Constructing List Faces WebSocket Request ===");
@@ -835,7 +835,7 @@ std::string Application::AddFaceToAliyunDB(const std::string& person_name) {
     cJSON_AddStringToObject(payload, "image_path", image_path.c_str());
     cJSON_AddItemToObject(request, "payload", payload);
     
-    char* json_string = cJSON_Print(request);
+    char* json_string = cJSON_PrintUnformatted(request);
     
     // 🔥 详细打印WebSocket请求构造信息
     ESP_LOGI("FaceRec", "=== Constructing Add Face WebSocket Request ===");
@@ -935,7 +935,7 @@ std::string Application::SearchFaceInAliyunDB() {
     cJSON_AddNumberToObject(payload, "threshold", 80.0);
     cJSON_AddItemToObject(request, "payload", payload);
     
-    char* json_string = cJSON_Print(request);
+    char* json_string = cJSON_PrintUnformatted(request);
     
     // 🔥 详细打印WebSocket请求构造信息
     ESP_LOGI("FaceRec", "=== Constructing Search Face WebSocket Request ===");
@@ -980,7 +980,7 @@ std::string Application::SendFaceRequest(const std::string& json_request) {
     }
 
     cJSON_AddStringToObject(json_obj, "request_id", request_id.c_str());
-    char* updated_json = cJSON_Print(json_obj);
+    char* updated_json = cJSON_PrintUnformatted(json_obj);
     
     // 🔥 详细打印WebSocket请求信息
     ESP_LOGI("FaceRec", "=== WebSocket Request Details ===");
@@ -1442,7 +1442,7 @@ void Application::Start() {
             
             if (cJSON_IsString(request_id) && cJSON_IsObject(payload)) {
                 std::string response_id = request_id->valuestring;
-                char* payload_str = cJSON_Print(payload);
+                char* payload_str = cJSON_PrintUnformatted(payload);
                 
                 ESP_LOGI("FaceRec", "Processing response for request ID: %s", response_id.c_str());
                 ESP_LOGD("FaceRec", "Payload: %s", payload_str);
