@@ -72,7 +72,8 @@ public:
     std::string ListFacesInAliyunDB();
     std::string AddFaceToAliyunDB(const std::string& person_name, camera_fb_t* fb);
     std::string SearchFaceInAliyunDB(camera_fb_t* fb);
-    std::string UploadImageToFtp(camera_fb_t* fb, const std::string& filename);
+    std::string CreateImageFile(camera_fb_t* fb, const std::string& filename);
+    std::string UploadImageToFtp(const std::string& local_file_path, const std::string& filename);
     void PlaySound(const std::string_view& sound);
     AudioService& GetAudioService() { return audio_service_; }
 

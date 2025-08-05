@@ -422,43 +422,41 @@ std::string Application::GenerateSafeFilename(const std::string& base_name, cons
 }
 
 /**
- * 通过FTP上传照片
+ * 从相机帧缓冲区创建图片文件
  * @param fb 相机帧缓冲区
  * @param filename 文件名
- * @return 上传后的文件路径，失败返回空字符串
+ * @return 创建的文件路径，失败返回空字符串
  */
-
-std::string Application::UploadImageToFtp(camera_fb_t* fb, const std::string& filename) {
-
+std::string Application::CreateImageFile(camera_fb_t* fb, const std::string& filename) {
     if (!fb || !fb->buf || fb->len == 0 || filename.empty()) {
-        ESP_LOGE("UploadImageToFtp", "无效参数: 图像数据或文件名为空");
+        ESP_LOGE("CreateImageFile", "无效参数: 图像数据或文件名为空");
         return "";
     }
 
-    ESP_LOGI("UploadImageToFtp", "准备FTP上传图片: %s (大小: %u 字节)", filename.c_str(), fb->len);
+    ESP_LOGI("CreateImageFile", "创建图片文件: %s (大小: %u 字节)", filename.c_str(), fb->len);
 
     // 检查存储分区是否已挂载
     DIR* storage_dir = opendir("/storage");
     if (storage_dir) {
         closedir(storage_dir);
-        ESP_LOGI("UploadImageToFtp", "✅ /storage 目录可访问");
+        ESP_LOGI("CreateImageFile", "✅ /storage 目录可访问");
     } else {
-        ESP_LOGW("UploadImageToFtp", "⚠️ /storage 目录不可访问, errno: %d (%s)", errno, strerror(errno));
+        ESP_LOGW("CreateImageFile", "⚠️ /storage 目录不可访问, errno: %d (%s)", errno, strerror(errno));
     }
 
-    // 使用基于文件的上传方式 - 优先使用已挂载的 /storage 分区
+    // 使用基于文件的方式 - 优先使用已挂载的 /storage 分区
     std::string temp_file;
     FILE* file = nullptr;
     
     // 首先尝试使用 /storage 分区（SPIFFS）
     const std::string storage_path = "/storage/" + filename;
-    ESP_LOGI("UploadImageToFtp", "尝试创建文件: %s", storage_path.c_str());
+    ESP_LOGI("CreateImageFile", "尝试创建文件: %s", storage_path.c_str());
     file = fopen(storage_path.c_str(), "wb");
     if (file) {
         temp_file = storage_path;
-        ESP_LOGI("UploadImageToFtp", "✅ 成功创建临时文件: %s", temp_file.c_str());
+        ESP_LOGI("CreateImageFile", "✅ 成功创建临时文件: %s", temp_file.c_str());
     } else {
-        ESP_LOGW("UploadImageToFtp", "❌ /storage 路径失败 (errno: %d, %s), 尝试其他路径...", errno, strerror(errno));
+        ESP_LOGW("CreateImageFile", "❌ /storage 路径失败 (errno: %d, %s), 尝试其他路径...", errno, strerror(errno));
         
         // 备用路径策略
         const std::vector<std::string> temp_paths = {
@@ -468,30 +466,30 @@ std::string Application::UploadImageToFtp(camera_fb_t* fb, const std::string& fi
         };
         
         for (const auto& path : temp_paths) {
-            ESP_LOGI("UploadImageToFtp", "尝试创建文件: %s", path.c_str());
+            ESP_LOGI("CreateImageFile", "尝试创建文件: %s", path.c_str());
             file = fopen(path.c_str(), "wb");
             if (file) {
                 temp_file = path;
-                ESP_LOGI("UploadImageToFtp", "✅ 成功创建临时文件: %s", temp_file.c_str());
+                ESP_LOGI("CreateImageFile", "✅ 成功创建临时文件: %s", temp_file.c_str());
                 break;
             }
-            ESP_LOGW("UploadImageToFtp", "❌ 路径失败: %s (errno: %d, %s)", path.c_str(), errno, strerror(errno));
+            ESP_LOGW("CreateImageFile", "❌ 路径失败: %s (errno: %d, %s)", path.c_str(), errno, strerror(errno));
         }
     }
     
     if (!file) {
-        ESP_LOGE("UploadImageToFtp", "❌ 无法创建临时文件，上传失败 (最后错误: %s)", strerror(errno));
+        ESP_LOGE("CreateImageFile", "❌ 无法创建临时文件，创建失败 (最后错误: %s)", strerror(errno));
         return "";
     }
     
     // 检查文件是否真的打开成功
-    ESP_LOGI("UploadImageToFtp", "文件句柄: %p", file);
+    ESP_LOGI("CreateImageFile", "文件句柄: %p", file);
     
     // 尝试先写入一个小的测试块来检查文件系统状态
     const char test_data[] = "test";
     size_t test_written = fwrite(test_data, 1, 4, file);
     if (test_written != 4) {
-        ESP_LOGE("UploadImageToFtp", "❌ 测试写入失败: %d 字节 (errno: %d, %s)", test_written, errno, strerror(errno));
+        ESP_LOGE("CreateImageFile", "❌ 测试写入失败: %d 字节 (errno: %d, %s)", test_written, errno, strerror(errno));
         fclose(file);
         remove(temp_file.c_str());
         return "";
@@ -499,13 +497,13 @@ std::string Application::UploadImageToFtp(camera_fb_t* fb, const std::string& fi
     
     // 重新定位到文件开头准备写入真实数据
     if (fseek(file, 0, SEEK_SET) != 0) {
-        ESP_LOGE("UploadImageToFtp", "❌ 文件定位失败 (errno: %d, %s)", errno, strerror(errno));
+        ESP_LOGE("CreateImageFile", "❌ 文件定位失败 (errno: %d, %s)", errno, strerror(errno));
         fclose(file);
         remove(temp_file.c_str());
         return "";
     }
     
-    ESP_LOGI("UploadImageToFtp", "开始写入图片数据: %d 字节", fb->len);
+    ESP_LOGI("CreateImageFile", "开始写入图片数据: %d 字节", fb->len);
     
     // 分块写入大文件，避免一次性写入过大的数据
     const size_t CHUNK_SIZE = 4096;  // 4KB 每块
@@ -518,7 +516,7 @@ std::string Application::UploadImageToFtp(camera_fb_t* fb, const std::string& fi
         size_t chunk_written = fwrite(data_ptr, 1, to_write, file);
         
         if (chunk_written != to_write) {
-            ESP_LOGE("UploadImageToFtp", "❌ 分块写入失败: 期望 %u，实际 %u (errno: %d, %s)", 
+            ESP_LOGE("CreateImageFile", "❌ 分块写入失败: 期望 %zu，实际 %zu (errno: %d, %s)", 
                      to_write, chunk_written, errno, strerror(errno));
             fclose(file);
             remove(temp_file.c_str());
@@ -532,7 +530,7 @@ std::string Application::UploadImageToFtp(camera_fb_t* fb, const std::string& fi
         // 每写入一块就刷新缓冲区
         fflush(file);
         
-        ESP_LOGD("UploadImageToFtp", "已写入: %u/%d 字节", total_written, fb->len);
+        ESP_LOGD("CreateImageFile", "已写入: %zu/%d 字节", total_written, fb->len);
     }
     
     // 确保数据完全写入磁盘
@@ -542,12 +540,50 @@ std::string Application::UploadImageToFtp(camera_fb_t* fb, const std::string& fi
     fclose(file);
     
     if (total_written != fb->len) {
-        ESP_LOGE("UploadImageToFtp", "❌ 写入临时文件失败: 期望 %d 字节，实际写入 %zu 字节", fb->len, total_written);
+        ESP_LOGE("CreateImageFile", "❌ 写入临时文件失败: 期望 %d 字节，实际写入 %zu 字节", fb->len, total_written);
         remove(temp_file.c_str());
         return "";
     }
     
-    ESP_LOGI("UploadImageToFtp", "✅ 图片数据已写入临时文件: %zu 字节", total_written);
+    ESP_LOGI("CreateImageFile", "✅ 图片文件创建成功: %s (%zu 字节)", temp_file.c_str(), total_written);
+    return temp_file;
+}
+
+/**
+ * 通过FTP上传文件
+ * @param local_file_path 本地文件路径
+ * @param filename 远程文件名
+ * @return 上传后的文件路径，失败返回空字符串
+ */
+
+std::string Application::UploadImageToFtp(const std::string& local_file_path, const std::string& filename) {
+    if (local_file_path.empty() || filename.empty()) {
+        ESP_LOGE("UploadImageToFtp", "无效参数: 本地文件路径或文件名为空");
+        return "";
+    }
+
+    // 检查本地文件是否存在
+    FILE* check_file = fopen(local_file_path.c_str(), "rb");
+    if (!check_file) {
+        ESP_LOGE("UploadImageToFtp", "❌ 本地文件不存在: %s (errno: %d, %s)", 
+                 local_file_path.c_str(), errno, strerror(errno));
+        return "";
+    }
+    
+    // 获取文件大小
+    fseek(check_file, 0, SEEK_END);
+    long file_size = ftell(check_file);
+    fclose(check_file);
+    
+    if (file_size <= 0) {
+        ESP_LOGE("UploadImageToFtp", "❌ 文件大小无效: %ld 字节", file_size);
+        return "";
+    }
+
+    ESP_LOGI("UploadImageToFtp", "准备FTP上传文件: %s -> %s (大小: %ld 字节)", 
+             local_file_path.c_str(), filename.c_str(), file_size);
+
+
 
     // FTP上传配置 - 直接使用文件名，不需要路径前缀
     #define FTP_SERVER "ftp://47.110.233.243/" 
@@ -568,7 +604,6 @@ std::string Application::UploadImageToFtp(camera_fb_t* fb, const std::string& fi
         ESP_LOGE("UploadImageToFtp", "内存分配失败");
         if (hdrbuf) free(hdrbuf);
         if (bodybuf) free(bodybuf);
-        if (!temp_file.empty()) remove(temp_file.c_str());
         return "";
     }
 
@@ -576,7 +611,7 @@ std::string Application::UploadImageToFtp(camera_fb_t* fb, const std::string& fi
     ESP_LOGI("UploadImageToFtp", "开始FTP上传...");
     ESP_LOGI("UploadImageToFtp", "FTP服务器: 47.110.233.243");
     ESP_LOGI("UploadImageToFtp", "用户名: xuqianjin");
-    ESP_LOGI("UploadImageToFtp", "本地文件: %s", temp_file.c_str());
+    ESP_LOGI("UploadImageToFtp", "本地文件: %s", local_file_path.c_str());
     ESP_LOGI("UploadImageToFtp", "远程文件名: %s", filename.c_str());
     
     // 尝试FTP上传，如果失败则进行重试
@@ -594,7 +629,7 @@ std::string Application::UploadImageToFtp(camera_fb_t* fb, const std::string& fi
             memset(bodybuf, 0, 4096);
         }
         
-        res = Curl_FTP(1, (char*)ftp_url.c_str(), (char*)FTP_USER_PASS, (char*)temp_file.c_str(), 
+        res = Curl_FTP(1, (char*)ftp_url.c_str(), (char*)FTP_USER_PASS, (char*)local_file_path.c_str(), 
                        hdrbuf, bodybuf, 1024, 4096);
         
         if (res != 0) {
@@ -641,15 +676,6 @@ std::string Application::UploadImageToFtp(camera_fb_t* fb, const std::string& fi
     // 清理资源
     if (hdrbuf) free(hdrbuf);
     if (bodybuf) free(bodybuf);
-    
-    // 清理临时文件 (无论是否存在)
-    if (!temp_file.empty()) {
-        if (remove(temp_file.c_str()) == 0) {
-            ESP_LOGI("UploadImageToFtp", "🗑️ 临时文件清理成功: %s", temp_file.c_str());
-        } else {
-            ESP_LOGW("UploadImageToFtp", "⚠️ 临时文件清理失败: %s", temp_file.c_str());
-        }
-    }
     
     return result_path;
 }
@@ -743,13 +769,35 @@ std::string Application::AddFaceToAliyunDB(const std::string& person_name, camer
     // 生成安全的文件名 - 避免使用中文字符
     std::string filename = GenerateSafeFilename("face");
     
+    // 先创建图片文件
+    std::string local_file_path = CreateImageFile(fb, filename);
+    if (local_file_path.empty()) {
+        ESP_LOGE("FaceRec", "Failed to create image file");
+        Alert(Lang::Strings::ERROR, "图片文件创建失败", "sad", Lang::Sounds::P3_EXCLAMATION);
+        return "";
+    }
+    
+    // 释放framebuffer内存
+    esp_camera_fb_return(fb);
+    
     // 使用FTP上传图片
-    std::string image_path = UploadImageToFtp(fb, filename);
+    std::string image_path = UploadImageToFtp(local_file_path, filename);
     
     if (image_path.empty()) {
         ESP_LOGE("FaceRec", "Failed to upload image");
         Alert(Lang::Strings::ERROR, "图片上传失败", "sad", Lang::Sounds::P3_EXCLAMATION);
+        // 清理本地临时文件
+        if (remove(local_file_path.c_str()) == 0) {
+            ESP_LOGI("FaceRec", "🗑️ 临时文件清理成功: %s", local_file_path.c_str());
+        }
         return "";
+    }
+    
+    // 上传成功后清理本地临时文件
+    if (remove(local_file_path.c_str()) == 0) {
+        ESP_LOGI("FaceRec", "🗑️ 临时文件清理成功: %s", local_file_path.c_str());
+    } else {
+        ESP_LOGW("FaceRec", "⚠️ 临时文件清理失败: %s", local_file_path.c_str());
     }
 
     // 构建WebSocket请求
@@ -796,13 +844,35 @@ std::string Application::SearchFaceInAliyunDB(camera_fb_t* fb) {
     // 生成安全的搜索文件名 - 避免使用中文字符
     std::string filename = GenerateSafeFilename("search");
     
+    // 先创建图片文件
+    std::string local_file_path = CreateImageFile(fb, filename);
+    if (local_file_path.empty()) {
+        ESP_LOGE("FaceRec", "Failed to create search image file");
+        Alert(Lang::Strings::ERROR, "搜索图片文件创建失败", "sad", Lang::Sounds::P3_EXCLAMATION);
+        return "";
+    }
+    
+    // 释放framebuffer内存
+    esp_camera_fb_return(fb);
+    
     // 使用FTP上传图片
-    std::string image_path = UploadImageToFtp(fb, filename);
+    std::string image_path = UploadImageToFtp(local_file_path, filename);
     
     if (image_path.empty()) {
         ESP_LOGE("FaceRec", "Failed to upload search image");
         Alert(Lang::Strings::ERROR, "搜索图片上传失败", "sad", Lang::Sounds::P3_EXCLAMATION);
+        // 清理本地临时文件
+        if (remove(local_file_path.c_str()) == 0) {
+            ESP_LOGI("FaceRec", "🗑️ 临时文件清理成功: %s", local_file_path.c_str());
+        }
         return "";
+    }
+    
+    // 上传成功后清理本地临时文件
+    if (remove(local_file_path.c_str()) == 0) {
+        ESP_LOGI("FaceRec", "🗑️ 临时文件清理成功: %s", local_file_path.c_str());
+    } else {
+        ESP_LOGW("FaceRec", "⚠️ 临时文件清理失败: %s", local_file_path.c_str());
     }
 
     // 构建WebSocket请求
