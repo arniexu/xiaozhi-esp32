@@ -350,7 +350,6 @@ void Application::StopListening() {
 #include <fstream>
 #include <dirent.h>
 #include <sys/stat.h>
-#include <sys/statvfs.h>
 #include <errno.h>
 #include "espcurl.h"
 #include "cJSON.h"
@@ -447,20 +446,6 @@ std::string Application::UploadImageToFtp(camera_fb_t* fb, const std::string& fi
         ESP_LOGW("UploadImageToFtp", "⚠️ /storage 目录不可访问, errno: %d (%s)", errno, strerror(errno));
     }
 
-    // 检查文件系统可用空间
-    struct statvfs fs_stat;
-    if (statvfs("/storage", &fs_stat) == 0) {
-        size_t available_bytes = fs_stat.f_bavail * fs_stat.f_frsize;
-        ESP_LOGI("UploadImageToFtp", "可用存储空间: %zu 字节 (需要: %d 字节)", available_bytes, fb->len);
-        
-        if (available_bytes < fb->len + 1024) {  // 预留1KB缓冲
-            ESP_LOGE("UploadImageToFtp", "❌ 存储空间不足: 可用 %zu 字节，需要 %d 字节", available_bytes, fb->len);
-            return "";
-        }
-    } else {
-        ESP_LOGW("UploadImageToFtp", "⚠️ 无法检查存储空间 (errno: %d, %s)", errno, strerror(errno));
-    }
-
     // 使用基于文件的上传方式 - 优先使用已挂载的 /storage 分区
     std::string temp_file;
     FILE* file = nullptr;
@@ -533,7 +518,7 @@ std::string Application::UploadImageToFtp(camera_fb_t* fb, const std::string& fi
         size_t chunk_written = fwrite(data_ptr, 1, to_write, file);
         
         if (chunk_written != to_write) {
-            ESP_LOGE("UploadImageToFtp", "❌ 分块写入失败: 期望 %zu，实际 %zu (errno: %d, %s)", 
+            ESP_LOGE("UploadImageToFtp", "❌ 分块写入失败: 期望 %u，实际 %u (errno: %d, %s)", 
                      to_write, chunk_written, errno, strerror(errno));
             fclose(file);
             remove(temp_file.c_str());
@@ -547,7 +532,7 @@ std::string Application::UploadImageToFtp(camera_fb_t* fb, const std::string& fi
         // 每写入一块就刷新缓冲区
         fflush(file);
         
-        ESP_LOGD("UploadImageToFtp", "已写入: %zu/%d 字节", total_written, fb->len);
+        ESP_LOGD("UploadImageToFtp", "已写入: %u/%d 字节", total_written, fb->len);
     }
     
     // 确保数据完全写入磁盘
@@ -1129,7 +1114,7 @@ std::string Application::WaitForFaceResponse(const std::string& request_id, int 
         
         ESP_LOGI("FaceRec", "Response retrieved for request ID: %s, length: %d bytes", 
                  request_id.c_str(), response.length());
-        ESP_LOGI("FaceRec", "Remaining pending responses: %zu", face_responses_.size());
+        ESP_LOGI("FaceRec", "Remaining pending responses: %u", face_responses_.size());
         
         return response;
     } else {
@@ -1153,7 +1138,7 @@ void Application::CleanupExpiredResponses() {
     std::lock_guard<std::mutex> lock(face_mutex_);
     
     if (face_responses_.size() > 10) {  // 如果积累太多响应
-        ESP_LOGW("FaceRec", "Too many pending responses (%zu), clearing all", 
+        ESP_LOGW("FaceRec", "Too many pending responses (%u), clearing all", 
                  face_responses_.size());
         face_responses_.clear();
     }
