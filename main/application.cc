@@ -403,8 +403,7 @@ std::string base64_encode(const unsigned char* data, size_t len) {
     return ret;
 }
 
-// 服务器上传地址（根据实际情况修改）
-#define UPLOAD_URL "http://47.110.233.243:8003/api/upload/image"
+
 
 /**
  * 生成安全的文件名（只包含英文字母、数字、下划线和连字符）
@@ -430,11 +429,6 @@ std::string Application::GenerateSafeFilename(const std::string& base_name, cons
  */
 
 std::string Application::UploadImageToFtp(camera_fb_t* fb, const std::string& filename) {
-    struct AudioGuard {
-        decltype(audio_service_)& proc;
-        AudioGuard(decltype(audio_service_)& p) : proc(p) {  proc.Stop(); }
-        ~AudioGuard() { proc.Start(); }
-    } audio_guard(audio_service_);
 
     if (!fb || !fb->buf || fb->len == 0 || filename.empty()) {
         ESP_LOGE("UploadImageToFtp", "无效参数: 图像数据或文件名为空");
@@ -464,7 +458,7 @@ std::string Application::UploadImageToFtp(camera_fb_t* fb, const std::string& fi
         temp_file = storage_path;
         ESP_LOGI("UploadImageToFtp", "✅ 成功创建临时文件: %s", temp_file.c_str());
     } else {
-        ESP_LOGW("UploadImageToFtp", "❌ /storage 路径失败 (errno: %d), 尝试其他路径...", errno);
+        ESP_LOGW("UploadImageToFtp", "❌ /storage 路径失败 (errno: %d, %s), 尝试其他路径...", errno, strerror(errno));
         
         // 备用路径策略
         const std::vector<std::string> temp_paths = {
@@ -481,12 +475,12 @@ std::string Application::UploadImageToFtp(camera_fb_t* fb, const std::string& fi
                 ESP_LOGI("UploadImageToFtp", "✅ 成功创建临时文件: %s", temp_file.c_str());
                 break;
             }
-            ESP_LOGW("UploadImageToFtp", "❌ 路径失败: %s (errno: %d)", path.c_str(), errno);
+            ESP_LOGW("UploadImageToFtp", "❌ 路径失败: %s (errno: %d, %s)", path.c_str(), errno, strerror(errno));
         }
     }
     
     if (!file) {
-        ESP_LOGE("UploadImageToFtp", "❌ 无法创建临时文件，上传失败");
+        ESP_LOGE("UploadImageToFtp", "❌ 无法创建临时文件，上传失败 (最后错误: %s)", strerror(errno));
         return "";
     }
     
@@ -696,10 +690,11 @@ std::string Application::AddFaceToAliyunDB(const std::string& person_name, camer
     // 生成安全的文件名 - 避免使用中文字符
     std::string filename = GenerateSafeFilename("face");
     
-    // 🔥 直接上传原始JPEG图片到FTP服务器
+    // 使用FTP上传图片
     std::string image_path = UploadImageToFtp(fb, filename);
+    
     if (image_path.empty()) {
-        ESP_LOGE("FaceRec", "Failed to upload image to FTP server");
+        ESP_LOGE("FaceRec", "Failed to upload image");
         Alert(Lang::Strings::ERROR, "图片上传失败", "sad", Lang::Sounds::P3_EXCLAMATION);
         return "";
     }
@@ -748,10 +743,11 @@ std::string Application::SearchFaceInAliyunDB(camera_fb_t* fb) {
     // 生成安全的搜索文件名 - 避免使用中文字符
     std::string filename = GenerateSafeFilename("search");
     
-    // 🔥 直接上传原始JPEG图片到FTP服务器
+    // 使用FTP上传图片
     std::string image_path = UploadImageToFtp(fb, filename);
+    
     if (image_path.empty()) {
-        ESP_LOGE("FaceRec", "Failed to upload search image to FTP server");
+        ESP_LOGE("FaceRec", "Failed to upload search image");
         Alert(Lang::Strings::ERROR, "搜索图片上传失败", "sad", Lang::Sounds::P3_EXCLAMATION);
         return "";
     }
@@ -827,7 +823,7 @@ std::string Application::SendFaceRequest(const std::string& json_request) {
     free(updated_json);
     cJSON_Delete(json_obj);
 
-    std::string response = WaitForFaceResponse(request_id, 30);
+    std::string response = WaitForFaceResponse(request_id, 50);
     
     if (response.empty()) {
         ESP_LOGE("FaceRec", "No response received");
@@ -1096,16 +1092,32 @@ void Application::CleanupExpiredResponses() {
 }
 
 void Application::Start() {
+    ESP_LOGI(TAG, "=== Application::Start() BEGIN ===");
+    ESP_LOGI(TAG, "Free heap before start: %lu bytes", esp_get_free_heap_size());
+    
     auto& board = Board::GetInstance();
+    ESP_LOGI(TAG, "Board instance obtained");
     SetDeviceState(kDeviceStateStarting);
+    ESP_LOGI(TAG, "Device state set to starting");
 
     /* Setup the display */
+    ESP_LOGI(TAG, "Getting display...");
     auto display = board.GetDisplay();
+    ESP_LOGI(TAG, "Display obtained: %p", display);
 
     /* Setup the audio service */
+    ESP_LOGI(TAG, "Getting audio codec...");
     auto codec = board.GetAudioCodec();
+    ESP_LOGI(TAG, "Audio codec obtained: %p", codec);
+    
+    ESP_LOGI(TAG, "Initializing audio service...");
     audio_service_.Initialize(codec);
+    ESP_LOGI(TAG, "Audio service initialized");
+    
+    ESP_LOGI(TAG, "Starting audio service...");
     audio_service_.Start();
+    ESP_LOGI(TAG, "Audio service started");
+    ESP_LOGI(TAG, "Free heap after audio service: %lu bytes", esp_get_free_heap_size());
 
     AudioServiceCallbacks callbacks;
     callbacks.on_send_queue_available = [this]() {
@@ -1123,33 +1135,54 @@ void Application::Start() {
     esp_timer_start_periodic(clock_timer_handle_, 1000000);
 
     /* Wait for the network to be ready */
+    ESP_LOGI(TAG, "Starting network...");
     board.StartNetwork();
+    ESP_LOGI(TAG, "Network started");
+    ESP_LOGI(TAG, "Free heap after network: %lu bytes", esp_get_free_heap_size());
 
     // Update the status bar immediately to show the network state
+    ESP_LOGI(TAG, "Updating status bar...");
     if(display) {
         display->UpdateStatusBar(true);
     }
+    ESP_LOGI(TAG, "Status bar updated");
 
     // Check for new firmware version or get the MQTT broker address
+    ESP_LOGI(TAG, "Creating OTA instance...");
     Ota ota;
+    ESP_LOGI(TAG, "Checking new version...");
     CheckNewVersion(ota);
+    ESP_LOGI(TAG, "New version check completed");
+    ESP_LOGI(TAG, "Free heap after OTA check: %lu bytes", esp_get_free_heap_size());
 
     // Initialize the protocol
+    ESP_LOGI(TAG, "Setting display status...");
     if(display) {
         display->SetStatus(Lang::Strings::LOADING_PROTOCOL);
     }
+    ESP_LOGI(TAG, "Display status set");
 
     // Add MCP common tools before initializing the protocol
+    ESP_LOGI(TAG, "Adding MCP common tools...");
     McpServer::GetInstance().AddCommonTools();
+    ESP_LOGI(TAG, "MCP common tools added");
+    ESP_LOGI(TAG, "Free heap after MCP tools: %lu bytes", esp_get_free_heap_size());
 
+    ESP_LOGI(TAG, "Free heap after MCP tools: %lu bytes", esp_get_free_heap_size());
+
+    ESP_LOGI(TAG, "Determining protocol type...");
     if (ota.HasMqttConfig()) {
+        ESP_LOGI(TAG, "Using MQTT protocol");
         protocol_ = std::make_unique<MqttProtocol>();
     } else if (ota.HasWebsocketConfig()) {
+        ESP_LOGI(TAG, "Using WebSocket protocol");
         protocol_ = std::make_unique<WebsocketProtocol>();
     } else {
         ESP_LOGW(TAG, "No protocol specified in the OTA config, using MQTT");
         protocol_ = std::make_unique<MqttProtocol>();
     }
+    ESP_LOGI(TAG, "Protocol instance created");
+    ESP_LOGI(TAG, "Free heap after protocol creation: %lu bytes", esp_get_free_heap_size());
 
     protocol_->OnNetworkError([this](const std::string& message) {
         last_error_message_ = message;
@@ -1277,23 +1310,38 @@ void Application::Start() {
             ESP_LOGW(TAG, "Unknown message type: %s", type->valuestring);
         }
     });
+    ESP_LOGI(TAG, "Protocol callbacks set");
+    ESP_LOGI(TAG, "Free heap before protocol start: %lu bytes", esp_get_free_heap_size());
+    
+    ESP_LOGI(TAG, "Starting protocol...");
     bool protocol_started = protocol_->Start();
+    ESP_LOGI(TAG, "Protocol start result: %s", protocol_started ? "SUCCESS" : "FAILED");
+    ESP_LOGI(TAG, "Free heap after protocol start: %lu bytes", esp_get_free_heap_size());
 
+    ESP_LOGI(TAG, "Setting device state to idle...");
     SetDeviceState(kDeviceStateIdle);
+    ESP_LOGI(TAG, "Device state set to idle");
 
     has_server_time_ = ota.HasServerTime();
+    ESP_LOGI(TAG, "Has server time: %s", has_server_time_ ? "YES" : "NO");
+    
     if (protocol_started) {
+        ESP_LOGI(TAG, "Displaying success message...");
         std::string message = std::string(Lang::Strings::VERSION) + ota.GetCurrentVersion();
         if (display) {
         display->ShowNotification(message.c_str());
         display->SetChatMessage("system", "");
         }
+        ESP_LOGI(TAG, "Playing success sound...");
         // Play the success sound to indicate the device is ready
         audio_service_.PlaySound(Lang::Sounds::P3_SUCCESS);
+        ESP_LOGI(TAG, "Success sound played");
     }
 
     // Print heap stats
+    ESP_LOGI(TAG, "Printing heap stats...");
     SystemInfo::PrintHeapStats();
+    ESP_LOGI(TAG, "=== Application::Start() END ===");
 }
 
 void Application::OnClockTimer() {
@@ -1325,7 +1373,9 @@ void Application::Schedule(std::function<void()> callback) {
 // they should use Schedule to call this function
 void Application::MainEventLoop() {
     // Raise the priority of the main event loop to avoid being interrupted by background tasks (which has priority 2)
+    ESP_LOGI(TAG, "Setting task priority to 3...");
     vTaskPrioritySet(NULL, 3);
+    ESP_LOGI(TAG, "Entering main event loop...");
 
     while (true) {
         auto bits = xEventGroupWaitBits(event_group_, MAIN_EVENT_SCHEDULE |
@@ -1333,7 +1383,9 @@ void Application::MainEventLoop() {
             MAIN_EVENT_WAKE_WORD_DETECTED |
             MAIN_EVENT_VAD_CHANGE |
             MAIN_EVENT_ERROR, pdTRUE, pdFALSE, portMAX_DELAY);
+        
         if (bits & MAIN_EVENT_ERROR) {
+            ESP_LOGE(TAG, "Main event error detected");
             SetDeviceState(kDeviceStateIdle);
             Alert(Lang::Strings::ERROR, last_error_message_.c_str(), "sad", Lang::Sounds::P3_EXCLAMATION);
         }
