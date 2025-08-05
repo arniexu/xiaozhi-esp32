@@ -350,6 +350,7 @@ void Application::StopListening() {
 #include <fstream>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <errno.h>
 #include "espcurl.h"
 #include "cJSON.h"
@@ -446,6 +447,20 @@ std::string Application::UploadImageToFtp(camera_fb_t* fb, const std::string& fi
         ESP_LOGW("UploadImageToFtp", "⚠️ /storage 目录不可访问, errno: %d (%s)", errno, strerror(errno));
     }
 
+    // 检查文件系统可用空间
+    struct statvfs fs_stat;
+    if (statvfs("/storage", &fs_stat) == 0) {
+        size_t available_bytes = fs_stat.f_bavail * fs_stat.f_frsize;
+        ESP_LOGI("UploadImageToFtp", "可用存储空间: %zu 字节 (需要: %d 字节)", available_bytes, fb->len);
+        
+        if (available_bytes < fb->len + 1024) {  // 预留1KB缓冲
+            ESP_LOGE("UploadImageToFtp", "❌ 存储空间不足: 可用 %zu 字节，需要 %d 字节", available_bytes, fb->len);
+            return "";
+        }
+    } else {
+        ESP_LOGW("UploadImageToFtp", "⚠️ 无法检查存储空间 (errno: %d, %s)", errno, strerror(errno));
+    }
+
     // 使用基于文件的上传方式 - 优先使用已挂载的 /storage 分区
     std::string temp_file;
     FILE* file = nullptr;
@@ -484,17 +499,70 @@ std::string Application::UploadImageToFtp(camera_fb_t* fb, const std::string& fi
         return "";
     }
     
-    // 写入图片数据到临时文件
-    size_t written = fwrite(fb->buf, 1, fb->len, file);
-    fclose(file);
+    // 检查文件是否真的打开成功
+    ESP_LOGI("UploadImageToFtp", "文件句柄: %p", file);
     
-    if (written != fb->len) {
-        ESP_LOGE("UploadImageToFtp", "❌ 写入临时文件失败: 期望 %d 字节，实际写入 %d 字节", fb->len, written);
+    // 尝试先写入一个小的测试块来检查文件系统状态
+    const char test_data[] = "test";
+    size_t test_written = fwrite(test_data, 1, 4, file);
+    if (test_written != 4) {
+        ESP_LOGE("UploadImageToFtp", "❌ 测试写入失败: %d 字节 (errno: %d, %s)", test_written, errno, strerror(errno));
+        fclose(file);
         remove(temp_file.c_str());
         return "";
     }
     
-    ESP_LOGI("UploadImageToFtp", "✅ 图片数据已写入临时文件: %d 字节", written);
+    // 重新定位到文件开头准备写入真实数据
+    if (fseek(file, 0, SEEK_SET) != 0) {
+        ESP_LOGE("UploadImageToFtp", "❌ 文件定位失败 (errno: %d, %s)", errno, strerror(errno));
+        fclose(file);
+        remove(temp_file.c_str());
+        return "";
+    }
+    
+    ESP_LOGI("UploadImageToFtp", "开始写入图片数据: %d 字节", fb->len);
+    
+    // 分块写入大文件，避免一次性写入过大的数据
+    const size_t CHUNK_SIZE = 4096;  // 4KB 每块
+    size_t total_written = 0;
+    size_t remaining = fb->len;
+    uint8_t* data_ptr = fb->buf;
+    
+    while (remaining > 0) {
+        size_t to_write = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : remaining;
+        size_t chunk_written = fwrite(data_ptr, 1, to_write, file);
+        
+        if (chunk_written != to_write) {
+            ESP_LOGE("UploadImageToFtp", "❌ 分块写入失败: 期望 %zu，实际 %zu (errno: %d, %s)", 
+                     to_write, chunk_written, errno, strerror(errno));
+            fclose(file);
+            remove(temp_file.c_str());
+            return "";
+        }
+        
+        total_written += chunk_written;
+        remaining -= chunk_written;
+        data_ptr += chunk_written;
+        
+        // 每写入一块就刷新缓冲区
+        fflush(file);
+        
+        ESP_LOGD("UploadImageToFtp", "已写入: %zu/%d 字节", total_written, fb->len);
+    }
+    
+    // 确保数据完全写入磁盘
+    fflush(file);
+    fsync(fileno(file));
+    
+    fclose(file);
+    
+    if (total_written != fb->len) {
+        ESP_LOGE("UploadImageToFtp", "❌ 写入临时文件失败: 期望 %d 字节，实际写入 %zu 字节", fb->len, total_written);
+        remove(temp_file.c_str());
+        return "";
+    }
+    
+    ESP_LOGI("UploadImageToFtp", "✅ 图片数据已写入临时文件: %zu 字节", total_written);
 
     // FTP上传配置 - 直接使用文件名，不需要路径前缀
     #define FTP_SERVER "ftp://47.110.233.243/" 
@@ -505,11 +573,11 @@ std::string Application::UploadImageToFtp(camera_fb_t* fb, const std::string& fi
     
     // 分配缓冲区 - 使用堆分配而不是栈分配以节省栈空间
     char *hdrbuf = (char*)heap_caps_calloc(1024, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    char *bodybuf = (char*)heap_caps_calloc(2048, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    char *bodybuf = (char*)heap_caps_calloc(4096, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     
     // 如果PSRAM分配失败，回退到内部RAM
     if (!hdrbuf) hdrbuf = (char*)calloc(1024, 1);
-    if (!bodybuf) bodybuf = (char*)calloc(2048, 1);
+    if (!bodybuf) bodybuf = (char*)calloc(4096, 1);
     
     if (!hdrbuf || !bodybuf) {
         ESP_LOGE("UploadImageToFtp", "内存分配失败");
@@ -534,15 +602,15 @@ std::string Application::UploadImageToFtp(camera_fb_t* fb, const std::string& fi
     while (retry_count < MAX_FTP_RETRIES && res != 0) {
         if (retry_count > 0) {
             ESP_LOGW("UploadImageToFtp", "重试FTP上传 (%d/%d)...", retry_count + 1, MAX_FTP_RETRIES);
-            vTaskDelay(pdMS_TO_TICKS(2000));  // 等待2秒后重试
-            
+            vTaskDelay(pdMS_TO_TICKS(200));  // 等待200毫秒后重试
+
             // 清空缓冲区
             memset(hdrbuf, 0, 1024);
-            memset(bodybuf, 0, 2048);
+            memset(bodybuf, 0, 4096);
         }
         
         res = Curl_FTP(1, (char*)ftp_url.c_str(), (char*)FTP_USER_PASS, (char*)temp_file.c_str(), 
-                       hdrbuf, bodybuf, 1024, 2048);
+                       hdrbuf, bodybuf, 1024, 4096);
         
         if (res != 0) {
             ESP_LOGW("UploadImageToFtp", "第%d次FTP上传失败: 错误代码=%d", retry_count + 1, res);
