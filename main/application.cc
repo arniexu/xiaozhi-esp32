@@ -545,7 +545,7 @@ std::string Application::CreateImageFile(camera_fb_t* fb, const std::string& fil
         return "";
     }
     
-    ESP_LOGI("CreateImageFile", "✅ 图片文件创建成功: %s (%zu 字节)", temp_file.c_str(), total_written);
+    ESP_LOGI("CreateImageFile", "✅ 图片文件创建成功: %s (%u 字节)", temp_file.c_str(), total_written);
     return temp_file;
 }
 
@@ -1147,7 +1147,7 @@ void Application::StoreFaceResponse(const std::string& request_id, const std::st
         // 存储响应数据
         face_responses_[request_id] = response;
         
-        ESP_LOGI("FaceRec", "Response stored successfully. Current pending responses: %zu", 
+        ESP_LOGI("FaceRec", "Response stored successfully. Current pending responses: %u", 
                  face_responses_.size());
     }
     
