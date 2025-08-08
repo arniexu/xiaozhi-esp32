@@ -48,7 +48,7 @@ void AfeAudioProcessor::Initialize(AudioCodec* codec, int frame_duration_ms) {
     }
 
     afe_config->afe_perferred_core = 1;
-    afe_config->afe_perferred_priority = 1;
+    afe_config->afe_perferred_priority = 1;  // 恢复原始优先级
     afe_config->agc_init = false;
     afe_config->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
 
@@ -67,7 +67,7 @@ void AfeAudioProcessor::Initialize(AudioCodec* codec, int frame_duration_ms) {
         auto this_ = (AfeAudioProcessor*)arg;
         this_->AudioProcessorTask();
         vTaskDelete(NULL);
-    }, "audio_communication", 4096, this, 3, NULL);
+    }, "audio_communication", 4096, this, 6, NULL);
 }
 
 AfeAudioProcessor::~AfeAudioProcessor() {
