@@ -458,6 +458,54 @@ void InitializeSpi() {
         esp_http_client_cleanup(client);
         return response;
     }
+    // 获取 Home Assistant 某个实体的状态
+    std::string GetHomeAssistantState(const std::string &ha_url, const std::string &token, const std::string &entity_id)
+    {
+        std::string url = ha_url + "/api/states/" + entity_id;
+
+        esp_http_client_config_t config = {};
+        config.url = url.c_str();
+        config.method = HTTP_METHOD_GET;
+        config.timeout_ms = 10000;
+        config.crt_bundle_attach = esp_crt_bundle_attach;
+        config.transport_type = HTTP_TRANSPORT_OVER_SSL; // 如果是 https
+
+        esp_http_client_handle_t client = esp_http_client_init(&config);
+        std::string auth_header = "Bearer " + token;
+        esp_http_client_set_header(client, "Authorization", auth_header.c_str());
+        esp_http_client_set_header(client, "Content-Type", "application/json");
+
+        esp_err_t err = esp_http_client_open(client, 0);
+        if (err != ESP_OK)
+        {
+            esp_http_client_cleanup(client);
+            return "HTTP open failed";
+        }
+
+        int content_length = esp_http_client_fetch_headers(client);
+        int status_code = esp_http_client_get_status_code(client);
+
+        std::string response;
+        if (status_code == 200 && content_length > 0)
+        {
+            char *buffer = new char[content_length + 1];
+            int read_len = esp_http_client_read(client, buffer, content_length);
+            if (read_len > 0)
+            {
+                buffer[read_len] = '\0';
+                response.assign(buffer, read_len);
+            }
+            delete[] buffer;
+        }
+        else
+        {
+            response = "HTTP error: " + std::to_string(status_code);
+        }
+
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+        return response;
+    }
 
     void InitializeTools() {
         auto& mcp_server = McpServer::GetInstance();
@@ -688,7 +736,158 @@ void InitializeSpi() {
                 return std::string("unknown");
             }
         });
+        // Home Assistant 客厅温度获取工具
+        // 工具名: self.homeassistant.get_living_room_temperature
+        // 功能: 通过 Home Assistant API 获取客厅温度传感器的当前温度值。
+        // 参数: 无（entity_id 和 token 在代码中占位，需后续替换）
+        // 返回: 温度数值字符串（如 "25.3"），便于大语言模型处理
+        mcp_server.AddTool("self.homeassistant.get_living_room_temperature", "获取客厅温度", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
+            std::string ha_url = "http://192.168.100.143:8123"; // Home Assistant 地址（占位）
+            std::string token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI3NWJmYzkxYjVlNzg0MDczYTE2NTJiOWQ4ZmQ1NTA1OCIsImlhdCI6MTc1NTYxMDQ4NCwiZXhwIjoyMDcwOTcwNDg0fQ.pxBkLVTwdStSyrQxYpI7tR9_mxVbzEj3BknD7jxJXIM"; // Token（占位）
+            std::string entity_id = "sensor.miaomiaoc_cn_blt_3_1m2cf17fcck00_t9_temperature_p_3_1001"; // 客厅温度传感器实体ID（占位）
 
+            std::string response = GetHomeAssistantState(ha_url, token, entity_id);
+
+            // 解析温度值（假设返回JSON格式，属性为 state）
+            cJSON* json = cJSON_Parse(response.c_str());
+            if (!json) {
+                return std::string(""); // 解析失败返回空字符串
+            }
+            cJSON* state = cJSON_GetObjectItem(json, "state");
+            std::string result;
+            if (cJSON_IsString(state)) {
+                result = std::string(state->valuestring); // 只返回数值
+            } else {
+                result = std::string(""); // 未获取到温度值返回空字符串
+            }
+            cJSON_Delete(json);
+            return result;
+        });
+
+        // Home Assistant 客厅湿度获取工具
+        // 工具名: self.homeassistant.get_living_room_humidity
+        // 功能: 通过 Home Assistant API 获取客厅湿度传感器的当前湿度值。
+        // 参数: 无（entity_id 和 token 在代码中占位，需后续替换）
+        // 返回: 湿度数值字符串（如 "45.2"），便于大语言模型处理
+        mcp_server.AddTool("self.homeassistant.get_living_room_humidity", "获取客厅湿度", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
+            std::string ha_url = "http://192.168.100.143:8123"; // Home Assistant 地址（占位）
+            std::string token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI3NWJmYzkxYjVlNzg0MDczYTE2NTJiOWQ4ZmQ1NTA1OCIsImlhdCI6MTc1NTYxMDQ4NCwiZXhwIjoyMDcwOTcwNDg0fQ.pxBkLVTwdStSyrQxYpI7tR9_mxVbzEj3BknD7jxJXIM"; // Token（占位）
+            std::string entity_id = "sensor.miaomiaoc_cn_blt_3_1m2cf17fcck00_t9_relative_humidity_p_3_1002"; // 客厅湿度传感器实体ID（占位）
+
+            std::string response = GetHomeAssistantState(ha_url, token, entity_id);
+
+            // 解析湿度值（假设返回JSON格式，属性为 state）
+            cJSON* json = cJSON_Parse(response.c_str());
+            if (!json) {
+                return std::string(""); // 解析失败返回空字符串
+            }
+            cJSON* state = cJSON_GetObjectItem(json, "state");
+            std::string result;
+            if (cJSON_IsString(state)) {
+                result = std::string(state->valuestring); // 只返回数值
+            } else {
+                result = std::string(""); // 未获取到湿度值返回空字符串
+            }
+            cJSON_Delete(json);
+            return result;
+        });
+
+        // Home Assistant 关闭客厅灯工具
+        // 工具名: self.homeassistant.turn_off_living_room_light
+        // 功能: 通过 Home Assistant API 关闭客厅灯（light.living_room），无需参数。
+        // 返回: 操作结果字符串（如成功/失败/错误信息）
+        mcp_server.AddTool("self.homeassistant.turn_off_living_room_light", "关闭客厅灯", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
+            std::string ha_url = "http://192.168.100.143:8123"; // Home Assistant 地址（占位）
+            std::string token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI3NWJmYzkxYjVlNzg0MDczYTE2NTJiOWQ4ZmQ1NTA1OCIsImlhdCI6MTc1NTYxMDQ4NCwiZXhwIjoyMDcwOTcwNDg0fQ.pxBkLVTwdStSyrQxYpI7tR9_mxVbzEj3BknD7jxJXIM"; // Token（占位）
+            std::string entity_id = "light.zhuow_cn_2022232388_wy0a02_s_2_light"; // 客厅灯实体ID（占位）
+
+            std::string service_url = ha_url + "/api/services/light/turn_off";
+            std::string request_body = std::string("{\"entity_id\": \"") + entity_id + "\"}";
+
+            esp_http_client_config_t config = {};
+            config.url = service_url.c_str();
+            config.method = HTTP_METHOD_POST;
+            config.timeout_ms = 10000;
+            config.crt_bundle_attach = esp_crt_bundle_attach;
+            config.transport_type = HTTP_TRANSPORT_OVER_SSL;
+
+            esp_http_client_handle_t client = esp_http_client_init(&config);
+            std::string auth_header = "Bearer " + token;
+            esp_http_client_set_header(client, "Authorization", auth_header.c_str());
+            esp_http_client_set_header(client, "Content-Type", "application/json");
+            esp_http_client_set_post_field(client, request_body.c_str(), request_body.length());
+
+            esp_err_t err = esp_http_client_open(client, request_body.length());
+            if (err != ESP_OK) {
+                esp_http_client_cleanup(client);
+                return std::string("❌ 无法连接 Home Assistant: ") + esp_err_to_name(err);
+            }
+
+            int write_len = esp_http_client_write(client, request_body.c_str(), request_body.length());
+            if (write_len < 0) {
+                esp_http_client_close(client);
+                esp_http_client_cleanup(client);
+                return std::string("❌ 请求发送失败");
+            }
+
+            int status_code = esp_http_client_get_status_code(client);
+            esp_http_client_close(client);
+            esp_http_client_cleanup(client);
+
+            if (status_code == 200) {
+                return std::string("✅ 客厅灯已关闭");
+            } else {
+                return std::string("❌ 关闭失败，HTTP状态码: ") + std::to_string(status_code);
+            }
+        });
+        // Home Assistant 打开客厅灯工具
+        // 工具名: self.homeassistant.turn_on_living_room_light
+        // 功能: 通过 Home Assistant API 打开客厅灯（light.living_room），无需参数。
+        // 返回: 操作结果字符串（如成功/失败/错误信息）
+        mcp_server.AddTool("self.homeassistant.turn_on_living_room_light", "打开客厅灯", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
+            std::string ha_url = "http://192.168.100.143:8123"; // Home Assistant 地址（占位）
+            std::string token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI3NWJmYzkxYjVlNzg0MDczYTE2NTJiOWQ4ZmQ1NTA1OCIsImlhdCI6MTc1NTYxMDQ4NCwiZXhwIjoyMDcwOTcwNDg0fQ.pxBkLVTwdStSyrQxYpI7tR9_mxVbzEj3BknD7jxJXIM"; // Token（占位）
+            std::string entity_id = "light.zhuow_cn_2022232388_wy0a02_s_2_light"; // 客厅灯实体ID（占位）
+
+            std::string service_url = ha_url + "/api/services/light/turn_on";
+            std::string request_body = std::string("{\"entity_id\": \"") + entity_id + "\"}";
+
+            esp_http_client_config_t config = {};
+            config.url = service_url.c_str();
+            config.method = HTTP_METHOD_POST;
+            config.timeout_ms = 10000;
+            config.crt_bundle_attach = esp_crt_bundle_attach;
+            config.transport_type = HTTP_TRANSPORT_OVER_SSL;
+
+            esp_http_client_handle_t client = esp_http_client_init(&config);
+            std::string auth_header = "Bearer " + token;
+            esp_http_client_set_header(client, "Authorization", auth_header.c_str());
+            esp_http_client_set_header(client, "Content-Type", "application/json");
+            esp_http_client_set_post_field(client, request_body.c_str(), request_body.length());
+
+            esp_err_t err = esp_http_client_open(client, request_body.length());
+            if (err != ESP_OK) {
+                esp_http_client_cleanup(client);
+                return std::string("❌ 无法连接 Home Assistant: ") + esp_err_to_name(err);
+            }
+
+            int write_len = esp_http_client_write(client, request_body.c_str(), request_body.length());
+            if (write_len < 0) {
+                esp_http_client_close(client);
+                esp_http_client_cleanup(client);
+                return std::string("❌ 请求发送失败");
+            }
+
+            int status_code = esp_http_client_get_status_code(client);
+            esp_http_client_close(client);
+            esp_http_client_cleanup(client);
+
+            if (status_code == 200) {
+                return std::string("✅ 客厅灯已打开");
+            } else {
+                return std::string("❌ 打开失败，HTTP状态码: ") + std::to_string(status_code);
+            }
+        });
     }
 
 public:
