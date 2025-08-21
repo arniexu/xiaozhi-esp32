@@ -1,44 +1,14 @@
 // ESP-IDF JPEG encoder integration
-.#include "esp_jpeg_enc.h" // This header defines esp_jpeg_enc_handle_t
-#include <esp_log.h>
 #include <esp_err.h>
 #include <vector>
 
-bool jpeg_compress_to_file(const uint8_t* rgb888_buf, int width, int height, const char* filename, int quality) {
-    jpeg_enc_info_t config = {
-        .width = width,
-        .height = height,
-        .src_type = ESP_JPEG_ENC_TYPE_RGB888,
-        .quality = quality,
-        .out_buf_size = width * height * 3, // Max possible size
-    };
-    jpeg_enc_handle_t enc = nullptr;
-    esp_err_t ret = jpeg_enc_open(&config, &enc);
-    if (ret != ESP_OK || !enc) {
-        ESP_LOGE("jpeg_compress_to_file", "Failed to open JPEG encoder: %s", esp_err_to_name(ret));
-        return false;
-    }
-    std::vector<uint8_t> jpeg_buf(config.out_buf_size);
-    size_t jpeg_len = 0;
-    ret = jpeg_enc_process(enc, rgb888_buf, jpeg_buf.data(), &jpeg_len);
-    jpeg_enc_close(enc);
-    if (ret != ESP_OK || jpeg_len == 0) {
-        ESP_LOGE("jpeg_compress_to_file", "JPEG encoding failed: %s", esp_err_to_name(ret));
-        return false;
-    }
-    FILE* file = fopen(filename, "wb");
-    if (!file) {
-        ESP_LOGE("jpeg_compress_to_file", "Failed to open file: %s", filename);
-        return false;
-    }
-    size_t written = fwrite(jpeg_buf.data(), 1, jpeg_len, file);
-    fclose(file);
-    if (written != jpeg_len) {
-        ESP_LOGE("jpeg_compress_to_file", "File write incomplete: %zu/%zu", written, jpeg_len);
-        return false;
-    }
-    return true;
-}
+// 使用 ESP-IDF driver/jpeg_encode.h API
+#include "driver/jpeg_encode.h"
+#include "driver/jpeg_decode.h"
+#include <esp_log.h>
+#include <esp_err.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include "application.h"
 #include "board.h"
 #include "display.h"
@@ -462,6 +432,75 @@ std::string Application::GenerateSafeFilename(const std::string& base_name, cons
     return base_name + "_" + std::to_string(timestamp) + "_" + std::to_string(random) + file_suffix;
 }
 
+static bool jpeg_compress_to_file(const uint8_t* rgb888_buf, int width, int height, const char* filename, int quality) {
+    jpeg_encoder_handle_t encoder_handle = NULL;
+    jpeg_encode_engine_cfg_t encode_eng_cfg = {
+        .intr_priority = 0,
+        .timeout_ms = 40,
+    };
+    if (jpeg_new_encoder_engine(&encode_eng_cfg, &encoder_handle) != ESP_OK || encoder_handle == NULL) {
+        ESP_LOGE("jpeg_compress_to_file", "Failed to create JPEG encoder engine");
+        return false;
+    }
+    jpeg_encode_cfg_t enc_config = {
+        .src_type = JPEG_ENCODE_IN_FORMAT_RGB888,
+        .sub_sample = JPEG_DOWN_SAMPLING_YUV422,
+        .image_quality = (uint32_t)quality,
+        .width = width,
+        .height = height,
+    };
+
+    jpeg_encode_memory_alloc_cfg_t rx_mem_cfg = {
+        .buffer_direction = JPEG_ENC_ALLOC_OUTPUT_BUFFER,
+    };
+
+    jpeg_encode_memory_alloc_cfg_t tx_mem_cfg = {
+        .buffer_direction = JPEG_ENC_ALLOC_INPUT_BUFFER,
+    };
+    size_t rx_buffer_size = 0;
+    uint8_t *jpg_buf = (uint8_t*)jpeg_alloc_encoder_mem(width * height * 3, &rx_mem_cfg, &rx_buffer_size);
+    if (!jpg_buf) {
+        ESP_LOGE("jpeg_compress_to_file", "Failed to allocate JPEG output buffer");
+        jpeg_del_encoder_engine(encoder_handle);
+        return false;
+    }
+    size_t tx_buffer_size = 0;
+    uint8_t *raw_buf = (uint8_t*)jpeg_alloc_encoder_mem(width * height * 3, &tx_mem_cfg, &tx_buffer_size);
+    if (!raw_buf) {
+        ESP_LOGE("jpeg_compress_to_file", "Failed to allocate JPEG input buffer");
+        free(jpg_buf);
+        jpeg_del_encoder_engine(encoder_handle);
+        return false;
+    }
+    memcpy(raw_buf, rgb888_buf, width * height * 3);
+    uint32_t jpg_size = 0;
+    esp_err_t ret = jpeg_encoder_process(encoder_handle, &enc_config, raw_buf, width * height * 3, jpg_buf, rx_buffer_size, &jpg_size);
+    if (ret != ESP_OK || jpg_size == 0) {
+        ESP_LOGE("jpeg_compress_to_file", "JPEG encoding failed: %s", esp_err_to_name(ret));
+        free(jpg_buf);
+        free(raw_buf);
+        jpeg_del_encoder_engine(encoder_handle);
+        return false;
+    }
+    FILE* file = fopen(filename, "wb");
+    if (!file) {
+        ESP_LOGE("jpeg_compress_to_file", "Failed to open file: %s", filename);
+        free(jpg_buf);
+        free(raw_buf);
+        jpeg_del_encoder_engine(encoder_handle);
+        return false;
+    }
+    size_t written = fwrite(jpg_buf, 1, jpg_size, file);
+    fclose(file);
+    free(jpg_buf);
+    free(raw_buf);
+    jpeg_del_encoder_engine(encoder_handle);
+    if (written != jpg_size) {
+        ESP_LOGE("jpeg_compress_to_file", "File write incomplete: %zu/%zu", written, jpg_size);
+        return false;
+    }
+    return true;
+}
 /**
  * 从相机帧缓冲区创建图片文件
  * @param fb 相机帧缓冲区
