@@ -126,6 +126,38 @@ bool Esp32Camera::Capture() {
     }
     return true;
 }
+
+camera_fb_t *Esp32Camera::TakePhoto() {
+    if (encoder_thread_.joinable()) {
+        encoder_thread_.join();
+    }
+
+    int frames_to_get = 2;
+    // Try to get a stable frame
+    for (int i = 0; i < frames_to_get; i++) {
+        if (fb_ != nullptr) {
+            esp_camera_fb_return(fb_);
+        }
+        fb_ = esp_camera_fb_get();
+        if (fb_ == nullptr) {
+            ESP_LOGE(TAG, "Camera capture failed");
+            return nullptr;
+        }
+    }
+
+    // 如果预览图片 buffer 为空，则跳过预览
+    // 但仍返回 true，因为此时图像可以上传至服务器
+    if (preview_image_.data_size == 0) {
+        ESP_LOGW(TAG, "Skip preview because of unsupported frame size");
+        return nullptr;
+    }
+    if (preview_image_.data == nullptr) {
+        ESP_LOGE(TAG, "Preview image data is not initialized");
+        return nullptr;
+    }
+    return fb_;
+}
+
 bool Esp32Camera::SetHMirror(bool enabled) {
     sensor_t *s = esp_camera_sensor_get();
     if (s == nullptr) {

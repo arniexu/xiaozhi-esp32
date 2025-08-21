@@ -1,3 +1,44 @@
+// ESP-IDF JPEG encoder integration
+.#include "esp_jpeg_enc.h" // This header defines esp_jpeg_enc_handle_t
+#include <esp_log.h>
+#include <esp_err.h>
+#include <vector>
+
+bool jpeg_compress_to_file(const uint8_t* rgb888_buf, int width, int height, const char* filename, int quality) {
+    jpeg_enc_info_t config = {
+        .width = width,
+        .height = height,
+        .src_type = ESP_JPEG_ENC_TYPE_RGB888,
+        .quality = quality,
+        .out_buf_size = width * height * 3, // Max possible size
+    };
+    jpeg_enc_handle_t enc = nullptr;
+    esp_err_t ret = jpeg_enc_open(&config, &enc);
+    if (ret != ESP_OK || !enc) {
+        ESP_LOGE("jpeg_compress_to_file", "Failed to open JPEG encoder: %s", esp_err_to_name(ret));
+        return false;
+    }
+    std::vector<uint8_t> jpeg_buf(config.out_buf_size);
+    size_t jpeg_len = 0;
+    ret = jpeg_enc_process(enc, rgb888_buf, jpeg_buf.data(), &jpeg_len);
+    jpeg_enc_close(enc);
+    if (ret != ESP_OK || jpeg_len == 0) {
+        ESP_LOGE("jpeg_compress_to_file", "JPEG encoding failed: %s", esp_err_to_name(ret));
+        return false;
+    }
+    FILE* file = fopen(filename, "wb");
+    if (!file) {
+        ESP_LOGE("jpeg_compress_to_file", "Failed to open file: %s", filename);
+        return false;
+    }
+    size_t written = fwrite(jpeg_buf.data(), 1, jpeg_len, file);
+    fclose(file);
+    if (written != jpeg_len) {
+        ESP_LOGE("jpeg_compress_to_file", "File write incomplete: %zu/%zu", written, jpeg_len);
+        return false;
+    }
+    return true;
+}
 #include "application.h"
 #include "board.h"
 #include "display.h"
@@ -444,109 +485,37 @@ std::string Application::CreateImageFile(camera_fb_t* fb, const std::string& fil
         ESP_LOGW("CreateImageFile", "⚠️ /storage 目录不可访问, errno: %d (%s)", errno, strerror(errno));
     }
 
-    // 使用基于文件的方式 - 优先使用已挂载的 /storage 分区
+    // 转换 RGB565 到 RGB888
+    int width = fb->width;
+    int height = fb->height;
+    size_t rgb888_size = width * height * 3;
+    uint8_t* rgb888_buf = (uint8_t*)malloc(rgb888_size);
+    if (!rgb888_buf) {
+        ESP_LOGE("CreateImageFile", "❌ 分配 RGB888 缓冲区失败");
+        return "";
+    }
+    for (int i = 0; i < width * height; ++i) {
+        uint16_t pixel = ((uint16_t*)fb->buf)[i];
+        uint8_t r = ((pixel >> 11) & 0x1F) << 3;
+        uint8_t g = ((pixel >> 5) & 0x3F) << 2;
+        uint8_t b = (pixel & 0x1F) << 3;
+        rgb888_buf[i * 3 + 0] = r;
+        rgb888_buf[i * 3 + 1] = g;
+        rgb888_buf[i * 3 + 2] = b;
+    }
+
+    // JPEG 压缩（假设有 jpeg_compress_to_file 函数）
     std::string temp_file;
-    FILE* file = nullptr;
-    
-    // 首先尝试使用 /storage 分区（SPIFFS）
     const std::string storage_path = "/storage/" + filename;
-    ESP_LOGI("CreateImageFile", "尝试创建文件: %s", storage_path.c_str());
-    file = fopen(storage_path.c_str(), "wb");
-    if (file) {
-        temp_file = storage_path;
-        ESP_LOGI("CreateImageFile", "✅ 成功创建临时文件: %s", temp_file.c_str());
+    bool jpeg_ok = jpeg_compress_to_file(rgb888_buf, width, height, storage_path.c_str(), 12); // 12为质量
+    free(rgb888_buf);
+    if (jpeg_ok) {
+        ESP_LOGI("CreateImageFile", "✅ 图片文件创建成功: %s", storage_path.c_str());
+        return storage_path;
     } else {
-        ESP_LOGW("CreateImageFile", "❌ /storage 路径失败 (errno: %d, %s), 尝试其他路径...", errno, strerror(errno));
-        
-        // 备用路径策略
-        const std::vector<std::string> temp_paths = {
-            "/tmp/" + filename,           // RAM 临时文件系统
-            "/data/" + filename,          // 数据分区
-            "/cache/" + filename          // 缓存目录
-        };
-        
-        for (const auto& path : temp_paths) {
-            ESP_LOGI("CreateImageFile", "尝试创建文件: %s", path.c_str());
-            file = fopen(path.c_str(), "wb");
-            if (file) {
-                temp_file = path;
-                ESP_LOGI("CreateImageFile", "✅ 成功创建临时文件: %s", temp_file.c_str());
-                break;
-            }
-            ESP_LOGW("CreateImageFile", "❌ 路径失败: %s (errno: %d, %s)", path.c_str(), errno, strerror(errno));
-        }
-    }
-    
-    if (!file) {
-        ESP_LOGE("CreateImageFile", "❌ 无法创建临时文件，创建失败 (最后错误: %s)", strerror(errno));
+        ESP_LOGE("CreateImageFile", "❌ JPEG 压缩或写入失败: %s", storage_path.c_str());
         return "";
     }
-    
-    // 检查文件是否真的打开成功
-    ESP_LOGI("CreateImageFile", "文件句柄: %p", file);
-    
-    // 尝试先写入一个小的测试块来检查文件系统状态
-    const char test_data[] = "test";
-    size_t test_written = fwrite(test_data, 1, 4, file);
-    if (test_written != 4) {
-        ESP_LOGE("CreateImageFile", "❌ 测试写入失败: %d 字节 (errno: %d, %s)", test_written, errno, strerror(errno));
-        fclose(file);
-        remove(temp_file.c_str());
-        return "";
-    }
-    
-    // 重新定位到文件开头准备写入真实数据
-    if (fseek(file, 0, SEEK_SET) != 0) {
-        ESP_LOGE("CreateImageFile", "❌ 文件定位失败 (errno: %d, %s)", errno, strerror(errno));
-        fclose(file);
-        remove(temp_file.c_str());
-        return "";
-    }
-    
-    ESP_LOGI("CreateImageFile", "开始写入图片数据: %d 字节", fb->len);
-    
-    // 分块写入大文件，避免一次性写入过大的数据
-    const size_t CHUNK_SIZE = 4096;  // 4KB 每块
-    size_t total_written = 0;
-    size_t remaining = fb->len;
-    uint8_t* data_ptr = fb->buf;
-    
-    while (remaining > 0) {
-        size_t to_write = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : remaining;
-        size_t chunk_written = fwrite(data_ptr, 1, to_write, file);
-        
-        if (chunk_written != to_write) {
-            ESP_LOGE("CreateImageFile", "❌ 分块写入失败: 期望 %u，实际 %u (errno: %d, %s)", 
-                     to_write, chunk_written, errno, strerror(errno));
-            fclose(file);
-            remove(temp_file.c_str());
-            return "";
-        }
-        
-        total_written += chunk_written;
-        remaining -= chunk_written;
-        data_ptr += chunk_written;
-        
-        // 每写入一块就刷新缓冲区
-        fflush(file);
-        
-        ESP_LOGD("CreateImageFile", "已写入: %u/%d 字节", total_written, fb->len);
-    }
-    
-    // 确保数据完全写入磁盘
-    fflush(file);
-    fsync(fileno(file));
-    
-    fclose(file);
-    
-    if (total_written != fb->len) {
-        ESP_LOGE("CreateImageFile", "❌ 写入临时文件失败: 期望 %d 字节，实际写入 %u 字节", fb->len, total_written);
-        remove(temp_file.c_str());
-        return "";
-    }
-    
-    ESP_LOGI("CreateImageFile", "✅ 图片文件创建成功: %s (%u 字节)", temp_file.c_str(), total_written);
-    return temp_file;
 }
 
 /**
@@ -777,7 +746,8 @@ std::string Application::AddFaceToAliyunDB(const std::string& person_name) {
         std::lock_guard<std::mutex> camera_lock(camera_mutex_);
         ESP_LOGI("FaceRec", "🔒 摄像头已锁定");
         
-        fb = esp_camera_fb_get();
+        auto& board = Board::GetInstance();
+        fb = board.GetCamera()->TakePhoto();
         if (!fb) {
             ESP_LOGE("FaceRec", "❌ 无法获取摄像头数据");
             Alert(Lang::Strings::ERROR, "摄像头数据获取失败", "sad", Lang::Sounds::P3_EXCLAMATION);
@@ -876,7 +846,8 @@ std::string Application::SearchFaceInAliyunDB() {
         std::lock_guard<std::mutex> camera_lock(camera_mutex_);
         ESP_LOGI("FaceRec", "🔒 摄像头已锁定");
         
-        fb = esp_camera_fb_get();
+        auto& board = Board::GetInstance();
+        fb = board.GetCamera()->TakePhoto();
         if (!fb) {
             ESP_LOGE("FaceRec", "❌ 无法获取摄像头数据");
             Alert(Lang::Strings::ERROR, "摄像头数据获取失败", "sad", Lang::Sounds::P3_EXCLAMATION);
