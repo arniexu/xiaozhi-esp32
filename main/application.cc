@@ -701,12 +701,10 @@ std::string Application::CreateFaceDB(const std::string& db_name) {
     cJSON* request = cJSON_CreateObject();
     cJSON* payload = cJSON_CreateObject();
     
-    cJSON_AddStringToObject(request, "type", "face");
     cJSON_AddStringToObject(payload, "action", "create_face_db");
     cJSON_AddStringToObject(payload, "db_name", db_name.c_str());
-    cJSON_AddItemToObject(request, "payload", payload);
     
-    char* json_string = cJSON_PrintUnformatted(request);
+    char* json_string = cJSON_PrintUnformatted(payload);
     ESP_LOGI("FaceRec", "Request JSON: %s", json_string);
     
     std::string response = SendFaceRequest(json_string);
@@ -730,13 +728,11 @@ std::string Application::ListFacesInAliyunDB() {
     cJSON* request = cJSON_CreateObject();
     cJSON* payload = cJSON_CreateObject();
     
-    cJSON_AddStringToObject(request, "type", "face");
     cJSON_AddStringToObject(payload, "action", "list_people");
     cJSON_AddNumberToObject(payload, "limit", 100);
     cJSON_AddNumberToObject(payload, "offset", 0);
-    cJSON_AddItemToObject(request, "payload", payload);
     
-    char* json_string = cJSON_PrintUnformatted(request);
+    char* json_string = cJSON_PrintUnformatted(payload);
     
     // 🔥 详细打印WebSocket请求构造信息
     ESP_LOGI("FaceRec", "=== Constructing List Faces WebSocket Request ===");
@@ -834,17 +830,14 @@ std::string Application::AddFaceToAliyunDB(const std::string& person_name) {
     }
 
     // 构建WebSocket请求
-    cJSON* request = cJSON_CreateObject();
     cJSON* payload = cJSON_CreateObject();
     
-    cJSON_AddStringToObject(request, "type", "face");
     cJSON_AddStringToObject(payload, "action", "add_face");
     cJSON_AddStringToObject(payload, "person_name", person_name.c_str());
     // 🔥 修改：使用 image_path 而不是 image_url
     cJSON_AddStringToObject(payload, "image_path", image_path.c_str());
-    cJSON_AddItemToObject(request, "payload", payload);
     
-    char* json_string = cJSON_PrintUnformatted(request);
+    char* json_string = cJSON_PrintUnformatted(payload);
     
     // 🔥 详细打印WebSocket请求构造信息
     ESP_LOGI("FaceRec", "=== Constructing Add Face WebSocket Request ===");
@@ -934,18 +927,15 @@ std::string Application::SearchFaceInAliyunDB() {
     }
 
     // 构建WebSocket请求
-    cJSON* request = cJSON_CreateObject();
     cJSON* payload = cJSON_CreateObject();
     
-    cJSON_AddStringToObject(request, "type", "face");
     cJSON_AddStringToObject(payload, "action", "search_face");
     // 🔥 修改：使用 image_path 而不是 image_url
     cJSON_AddStringToObject(payload, "image_path", image_path.c_str());
     cJSON_AddNumberToObject(payload, "limit", 5);
     cJSON_AddNumberToObject(payload, "threshold", 80.0);
-    cJSON_AddItemToObject(request, "payload", payload);
     
-    char* json_string = cJSON_PrintUnformatted(request);
+    char* json_string = cJSON_PrintUnformatted(payload);
     
     // 🔥 详细打印WebSocket请求构造信息
     ESP_LOGI("FaceRec", "=== Constructing Search Face WebSocket Request ===");
@@ -999,7 +989,7 @@ std::string Application::SendFaceRequest(const std::string& json_request) {
     ESP_LOGI("FaceRec", "JSON Length: %d bytes", strlen(updated_json));
     ESP_LOGI("FaceRec", "Sending to WebSocket protocol...");
     
-    protocol_->SendMcpMessage(updated_json);  // 使用正确的函数
+    protocol_->SendFaceMessage(updated_json);  // 使用正确的函数
     
     free(updated_json);
     cJSON_Delete(json_obj);
