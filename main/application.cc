@@ -1,7 +1,7 @@
 // ESP-IDF JPEG encoder integration
 #include <esp_err.h>
 #include <vector>
-
+#include "bmpfile.h"
 // 使用 ESP-IDF driver/jpeg_encode.h API
 #include "driver/jpeg_encode.h"
 #include "driver/jpeg_decode.h"
@@ -414,8 +414,6 @@ std::string base64_encode(const unsigned char* data, size_t len) {
     return ret;
 }
 
-
-
 /**
  * 生成安全的文件名（只包含英文字母、数字、下划线和连字符）
  * @param base_name 文件名基础部分
@@ -432,75 +430,31 @@ std::string Application::GenerateSafeFilename(const std::string& base_name, cons
     return base_name + "_" + std::to_string(timestamp) + "_" + std::to_string(random) + file_suffix;
 }
 
-static bool jpeg_compress_to_file(const uint8_t* rgb888_buf, int width, int height, const char* filename, int quality) {
-    jpeg_encoder_handle_t encoder_handle = NULL;
-    jpeg_encode_engine_cfg_t encode_eng_cfg = {
-        .intr_priority = 0,
-        .timeout_ms = 40,
-    };
-    if (jpeg_new_encoder_engine(&encode_eng_cfg, &encoder_handle) != ESP_OK || encoder_handle == NULL) {
-        ESP_LOGE("jpeg_compress_to_file", "Failed to create JPEG encoder engine");
-        return false;
+// Converts RGB565 framebuffer to BMP and saves to file
+bool SaveRGB565ToBMP(const camera_fb_t* fb, uint32_t width, uint32_t height, const char* path) {
+    if (!fb || !fb->buf || fb->len < width * height * 2) return false;
+    bmpfile_t* bmp = bmp_create(width, height, 24); // 24-bit BMP
+    if (!bmp) return false;
+    for (uint32_t y = 0; y < height; ++y) {
+        for (uint32_t x = 0; x < width; ++x) {
+            int idx = (y * width + x) * 2;
+            uint16_t pixel = fb->buf[idx] | (fb->buf[idx + 1] << 8);
+            uint8_t r5 = (pixel >> 11) & 0x1F;
+            uint8_t g6 = (pixel >> 5) & 0x3F;
+            uint8_t b5 = pixel & 0x1F;
+            rgb_pixel_t px;
+            px.red = (r5 << 3) | (r5 >> 2);
+            px.green = (g6 << 2) | (g6 >> 4);
+            px.blue = (b5 << 3) | (b5 >> 2);
+            px.alpha = 0;
+            bmp_set_pixel(bmp, x, y, px);
+        }
     }
-    jpeg_encode_cfg_t enc_config = {
-        .src_type = JPEG_ENCODE_IN_FORMAT_RGB888,
-        .sub_sample = JPEG_DOWN_SAMPLING_YUV422,
-        .image_quality = (uint32_t)quality,
-        .width = width,
-        .height = height,
-    };
-
-    jpeg_encode_memory_alloc_cfg_t rx_mem_cfg = {
-        .buffer_direction = JPEG_ENC_ALLOC_OUTPUT_BUFFER,
-    };
-
-    jpeg_encode_memory_alloc_cfg_t tx_mem_cfg = {
-        .buffer_direction = JPEG_ENC_ALLOC_INPUT_BUFFER,
-    };
-    size_t rx_buffer_size = 0;
-    uint8_t *jpg_buf = (uint8_t*)jpeg_alloc_encoder_mem(width * height * 3, &rx_mem_cfg, &rx_buffer_size);
-    if (!jpg_buf) {
-        ESP_LOGE("jpeg_compress_to_file", "Failed to allocate JPEG output buffer");
-        jpeg_del_encoder_engine(encoder_handle);
-        return false;
-    }
-    size_t tx_buffer_size = 0;
-    uint8_t *raw_buf = (uint8_t*)jpeg_alloc_encoder_mem(width * height * 3, &tx_mem_cfg, &tx_buffer_size);
-    if (!raw_buf) {
-        ESP_LOGE("jpeg_compress_to_file", "Failed to allocate JPEG input buffer");
-        free(jpg_buf);
-        jpeg_del_encoder_engine(encoder_handle);
-        return false;
-    }
-    memcpy(raw_buf, rgb888_buf, width * height * 3);
-    uint32_t jpg_size = 0;
-    esp_err_t ret = jpeg_encoder_process(encoder_handle, &enc_config, raw_buf, width * height * 3, jpg_buf, rx_buffer_size, &jpg_size);
-    if (ret != ESP_OK || jpg_size == 0) {
-        ESP_LOGE("jpeg_compress_to_file", "JPEG encoding failed: %s", esp_err_to_name(ret));
-        free(jpg_buf);
-        free(raw_buf);
-        jpeg_del_encoder_engine(encoder_handle);
-        return false;
-    }
-    FILE* file = fopen(filename, "wb");
-    if (!file) {
-        ESP_LOGE("jpeg_compress_to_file", "Failed to open file: %s", filename);
-        free(jpg_buf);
-        free(raw_buf);
-        jpeg_del_encoder_engine(encoder_handle);
-        return false;
-    }
-    size_t written = fwrite(jpg_buf, 1, jpg_size, file);
-    fclose(file);
-    free(jpg_buf);
-    free(raw_buf);
-    jpeg_del_encoder_engine(encoder_handle);
-    if (written != jpg_size) {
-        ESP_LOGE("jpeg_compress_to_file", "File write incomplete: %zu/%zu", written, jpg_size);
-        return false;
-    }
-    return true;
+    bool ok = bmp_save(bmp, path);
+    bmp_destroy(bmp);
+    return ok;
 }
+
 /**
  * 从相机帧缓冲区创建图片文件
  * @param fb 相机帧缓冲区
@@ -527,27 +481,8 @@ std::string Application::CreateImageFile(camera_fb_t* fb, const std::string& fil
     // 转换 RGB565 到 RGB888
     int width = fb->width;
     int height = fb->height;
-    size_t rgb888_size = width * height * 3;
-    uint8_t* rgb888_buf = (uint8_t*)malloc(rgb888_size);
-    if (!rgb888_buf) {
-        ESP_LOGE("CreateImageFile", "❌ 分配 RGB888 缓冲区失败");
-        return "";
-    }
-    for (int i = 0; i < width * height; ++i) {
-        uint16_t pixel = ((uint16_t*)fb->buf)[i];
-        uint8_t r = ((pixel >> 11) & 0x1F) << 3;
-        uint8_t g = ((pixel >> 5) & 0x3F) << 2;
-        uint8_t b = (pixel & 0x1F) << 3;
-        rgb888_buf[i * 3 + 0] = r;
-        rgb888_buf[i * 3 + 1] = g;
-        rgb888_buf[i * 3 + 2] = b;
-    }
-
-    // JPEG 压缩（假设有 jpeg_compress_to_file 函数）
-    std::string temp_file;
     const std::string storage_path = "/storage/" + filename;
-    bool jpeg_ok = jpeg_compress_to_file(rgb888_buf, width, height, storage_path.c_str(), 12); // 12为质量
-    free(rgb888_buf);
+    bool jpeg_ok = SaveRGB565ToBMP(fb, width, height, storage_path.c_str()); // 12为质量
     if (jpeg_ok) {
         ESP_LOGI("CreateImageFile", "✅ 图片文件创建成功: %s", storage_path.c_str());
         return storage_path;
@@ -854,7 +789,7 @@ std::string Application::AddFaceToAliyunDB(const std::string& person_name) {
     ESP_LOGI("FaceRec", "=== Add Face Complete ===");
     
     free(json_string);
-    cJSON_Delete(request);
+    cJSON_Delete(payload);
     return response;
 }
 
@@ -953,7 +888,7 @@ std::string Application::SearchFaceInAliyunDB() {
     ESP_LOGI("FaceRec", "=== Search Face Complete ===");
     
     free(json_string);
-    cJSON_Delete(request);
+    cJSON_Delete(payload);
     return response;
 }
 

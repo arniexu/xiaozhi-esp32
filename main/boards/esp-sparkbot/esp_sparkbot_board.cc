@@ -518,6 +518,19 @@ void InitializeSpi() {
             }
         });
 
+            // MCP tool: Reduce display brightness
+            mcp_server.AddTool("self.display.reduce_brightness", "降低屏幕亮度", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
+                auto backlight = GetBacklight();
+                if (backlight) {
+                    backlight->SetBrightness(10, true); // Set brightness to 10 (example value)
+                    ESP_LOGI(TAG, "屏幕亮度已降低");
+                    return true;
+                } else {
+                    ESP_LOGE(TAG, "Backlight 控制不可用");
+                    return false;
+                }
+            });
+
         mcp_server.AddTool("self.chassis.go_forward", "前进", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
             SendUartMessage("x0.0 y1.0");
             return true;
@@ -886,6 +899,56 @@ void InitializeSpi() {
                 return std::string("✅ 客厅灯已打开");
             } else {
                 return std::string("❌ 打开失败，HTTP状态码: ") + std::to_string(status_code);
+            }
+        });
+        // MCP tool: Adjust Home Assistant light brightness
+        mcp_server.AddTool("self.homeassistant.set_living_room_light_brightness", "设置客厅灯亮度", PropertyList({
+            Property("brightness", kPropertyTypeInteger, 0, 255)
+        }), [this](const PropertyList& properties) -> ReturnValue {
+            std::string ha_url = "http://192.168.100.143:8123"; // Home Assistant 地址（占位）
+            std::string token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI3NWJmYzkxYjVlNzg0MDczYTE2NTJiOWQ4ZmQ1NTA1OCIsImlhdCI6MTc1NTYxMDQ4NCwiZXhwIjoyMDcwOTcwNDg0fQ.pxBkLVTwdStSyrQxYpI7tR9_mxVbzEj3BknD7jxJXIM"; // Token（占位）
+            std::string entity_id = "light.zhuow_cn_2022232388_wy0a02_s_2_light"; // 客厅灯实体ID（占位）
+
+            int brightness = properties["brightness"].value<int>();
+            std::string service_url = ha_url + "/api/services/light/turn_on";
+            std::stringstream request_body;
+            request_body << "{\"entity_id\": \"" << entity_id << "\", \"brightness\": " << brightness << "}";
+
+            esp_http_client_config_t config = {};
+            config.url = service_url.c_str();
+            config.method = HTTP_METHOD_POST;
+            config.timeout_ms = 10000;
+            config.crt_bundle_attach = esp_crt_bundle_attach;
+            config.transport_type = HTTP_TRANSPORT_OVER_SSL;
+
+            esp_http_client_handle_t client = esp_http_client_init(&config);
+            std::string auth_header = "Bearer " + token;
+            esp_http_client_set_header(client, "Authorization", auth_header.c_str());
+            esp_http_client_set_header(client, "Content-Type", "application/json");
+            std::string body_str = request_body.str();
+            esp_http_client_set_post_field(client, body_str.c_str(), body_str.length());
+
+            esp_err_t err = esp_http_client_open(client, body_str.length());
+            if (err != ESP_OK) {
+                esp_http_client_cleanup(client);
+                return std::string("❌ 无法连接 Home Assistant: ") + esp_err_to_name(err);
+            }
+
+            int write_len = esp_http_client_write(client, body_str.c_str(), body_str.length());
+            if (write_len < 0) {
+                esp_http_client_close(client);
+                esp_http_client_cleanup(client);
+                return std::string("❌ 请求发送失败");
+            }
+
+            int status_code = esp_http_client_get_status_code(client);
+            esp_http_client_close(client);
+            esp_http_client_cleanup(client);
+
+            if (status_code == 200) {
+                return std::string("✅ 客厅灯亮度已设置为: ") + std::to_string(brightness);
+            } else {
+                return std::string("❌ 设置失败，HTTP状态码: ") + std::to_string(status_code);
             }
         });
     }

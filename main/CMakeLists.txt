@@ -1,4 +1,5 @@
 set(SOURCES "audio/audio_codec.cc"
+            "bmpfile.c"
             "audio/audio_service.cc"
             "audio/codecs/no_audio_codec.cc"
             "audio/codecs/box_audio_codec.cc"
@@ -27,7 +28,7 @@ set(SOURCES "audio/audio_codec.cc"
             "main.cc"
             )
 
-set(INCLUDE_DIRS "." "display" "audio" "protocols")
+set(INCLUDE_DIRS "." "display" "audio" "protocols" "$ENV{IDF_PATH}/components/esp_driver_jpeg/include")
 
 # 添加板级公共文件
 file(GLOB BOARD_COMMON_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/boards/common/*.cc)
@@ -266,7 +267,7 @@ endif()
 idf_component_register(SRCS ${SOURCES}
                     EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS}
                     INCLUDE_DIRS ${INCLUDE_DIRS}
-                    PRIV_REQUIRES curl spi_flash esp_app_format app_update efuse esp_http_client esp_driver_jpeg
+                    PRIV_REQUIRES curl spi_flash esp_app_format app_update efuse esp_http_client driver
                     WHOLE_ARCHIVE
                     )
 
