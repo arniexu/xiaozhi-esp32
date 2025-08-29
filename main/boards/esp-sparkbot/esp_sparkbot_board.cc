@@ -139,6 +139,14 @@ void InitializeSpi() {
         ESP_ERROR_CHECK(spi_bus_initialize(SPI3_HOST, &buscfg, SPI_DMA_CH_AUTO));
     }
 
+    //实现函数初始化gpio3和gpio47为输出并且输出低电平
+    void InitializeGpio() {
+        gpio_set_direction(GPIO_NUM_3, GPIO_MODE_OUTPUT);
+        gpio_set_direction(GPIO_NUM_47, GPIO_MODE_OUTPUT);
+        gpio_set_level(GPIO_NUM_3, 0);
+        gpio_set_level(GPIO_NUM_47, 0);
+    }
+
     void InitializeButtons() {
         boot_button_.OnClick([this]() {
             auto& app = Application::GetInstance();
@@ -230,9 +238,9 @@ void InitializeSpi() {
 
         Settings settings("sparkbot", false);
         // 考虑到部分复刻使用了不可动摄像头的设计，默认启用翻转
-        bool camera_flipped = static_cast<bool>(settings.GetInt("camera-flipped", 1));
-        camera_->SetHMirror(camera_flipped);
-        camera_->SetVFlip(camera_flipped);
+        // bool camera_flipped = static_cast<bool>(settings.GetInt("camera-flipped", 1));
+        // camera_->SetHMirror(camera_flipped);
+        // camera_->SetVFlip(camera_flipped);
     }
 
     /*
@@ -612,29 +620,30 @@ void InitializeSpi() {
                 cJSON* return_code = cJSON_GetObjectItem(json, "return_code");
                 cJSON* return_msg = cJSON_GetObjectItem(json, "return_msg");
                 
+                //尽可能简洁的总结health_summary
                 if (cJSON_IsString(heart_rate)) {
-                    health_summary += "❤️ 心率: " + std::string(heart_rate->valuestring) + " bpm\n";
-                }
-                if (cJSON_IsString(blood_glucose)) {
-                    health_summary += "🩸 血糖: " + std::string(blood_glucose->valuestring) + " mg/dL\n";
-                }
-                if (cJSON_IsString(oxygen_saturation)) {
-                    health_summary += "🫁 血氧: " + std::string(oxygen_saturation->valuestring) + "%\n";
-                }
-                if (cJSON_IsString(body_temperature)) {
-                    health_summary += "🌡️ 体温: " + std::string(body_temperature->valuestring) + "°C\n";
+                    health_summary += "心率: " + std::string(heart_rate->valuestring) + " bpm ";
                 }
                 if (cJSON_IsString(blood_pressure)) {
-                    health_summary += "💉 血压: " + std::string(blood_pressure->valuestring) + " mmHg\n";
+                    health_summary += "血压: " + std::string(blood_pressure->valuestring) + " mmHg ";
                 }
-                if (cJSON_IsString(response_time)) {
-                    health_summary += "⏰ 数据时间: " + std::string(response_time->valuestring) + "\n";
+                if (cJSON_IsString(oxygen_saturation)) {
+                    health_summary += "血氧: " + std::string(oxygen_saturation->valuestring) + "% ";
+                }
+                if (cJSON_IsString(body_temperature)) {
+                    health_summary += "体温: " + std::string(body_temperature->valuestring) + "°C ";
+                }
+                if (cJSON_IsString(blood_glucose)) {
+                    health_summary += "血糖: " + std::string(blood_glucose->valuestring) + " mg/dL ";
                 }
                 if (cJSON_IsString(return_code)) {
-                    health_summary += "📤 状态码: " + std::string(return_code->valuestring) + "\n";
+                    health_summary += "状态: " + std::string(return_code->valuestring) + " ";
                 }
                 if (cJSON_IsString(return_msg)) {
-                    health_summary += "💬 消息: " + std::string(return_msg->valuestring);
+                    health_summary += "(" + std::string(return_msg->valuestring) + ")";
+                }
+                if (cJSON_IsString(response_time)) {
+                    health_summary += " 时间: " + std::string(response_time->valuestring);
                 }
                 
                 cJSON_Delete(json);
@@ -697,8 +706,8 @@ void InitializeSpi() {
             cJSON* root = cJSON_Parse(response.c_str());
             bool success = false;
             if (root) {
-                cJSON* code = cJSON_GetObjectItem(root, "Code");
-                if (cJSON_IsString(code) && strcmp(code->valuestring, "OK") == 0) {
+                cJSON* code = cJSON_GetObjectItem(root, "status");
+                if (cJSON_IsString(code) && strcmp(code->valuestring, "success") == 0) {
                     success = true;
                 }
                 cJSON_Delete(root);
@@ -756,7 +765,7 @@ void InitializeSpi() {
         // 返回: 温度数值字符串（如 "25.3"），便于大语言模型处理
         mcp_server.AddTool("self.homeassistant.get_living_room_temperature", "获取客厅温度", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
             std::string ha_url = "http://192.168.100.143:8123"; // Home Assistant 地址（占位）
-            std::string token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI3NWJmYzkxYjVlNzg0MDczYTE2NTJiOWQ4ZmQ1NTA1OCIsImlhdCI6MTc1NTYxMDQ4NCwiZXhwIjoyMDcwOTcwNDg0fQ.pxBkLVTwdStSyrQxYpI7tR9_mxVbzEj3BknD7jxJXIM"; // Token（占位）
+            std::string token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI4Y2E1NzFlZjU0M2Y0ODlhODE2YmFmYTdjZmYyZjcwOSIsImlhdCI6MTc1NjAzODgxNSwiZXhwIjoyMDcxMzk4ODE1fQ.ggOgXgnu9atig_hK34ucsCP-9HLYrvNaqJFhFyRe_BI"; // Token（占位）
             std::string entity_id = "sensor.miaomiaoc_cn_blt_3_1m2cf17fcck00_t9_temperature_p_3_1001"; // 客厅温度传感器实体ID（占位）
 
             std::string response = GetHomeAssistantState(ha_url, token, entity_id);
@@ -784,7 +793,7 @@ void InitializeSpi() {
         // 返回: 湿度数值字符串（如 "45.2"），便于大语言模型处理
         mcp_server.AddTool("self.homeassistant.get_living_room_humidity", "获取客厅湿度", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
             std::string ha_url = "http://192.168.100.143:8123"; // Home Assistant 地址（占位）
-            std::string token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI3NWJmYzkxYjVlNzg0MDczYTE2NTJiOWQ4ZmQ1NTA1OCIsImlhdCI6MTc1NTYxMDQ4NCwiZXhwIjoyMDcwOTcwNDg0fQ.pxBkLVTwdStSyrQxYpI7tR9_mxVbzEj3BknD7jxJXIM"; // Token（占位）
+            std::string token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI4Y2E1NzFlZjU0M2Y0ODlhODE2YmFmYTdjZmYyZjcwOSIsImlhdCI6MTc1NjAzODgxNSwiZXhwIjoyMDcxMzk4ODE1fQ.ggOgXgnu9atig_hK34ucsCP-9HLYrvNaqJFhFyRe_BI"; // Token（占位）
             std::string entity_id = "sensor.miaomiaoc_cn_blt_3_1m2cf17fcck00_t9_relative_humidity_p_3_1002"; // 客厅湿度传感器实体ID（占位）
 
             std::string response = GetHomeAssistantState(ha_url, token, entity_id);
@@ -811,7 +820,7 @@ void InitializeSpi() {
         // 返回: 操作结果字符串（如成功/失败/错误信息）
         mcp_server.AddTool("self.homeassistant.turn_off_living_room_light", "关闭客厅灯", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
             std::string ha_url = "http://192.168.100.143:8123"; // Home Assistant 地址（占位）
-            std::string token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI3NWJmYzkxYjVlNzg0MDczYTE2NTJiOWQ4ZmQ1NTA1OCIsImlhdCI6MTc1NTYxMDQ4NCwiZXhwIjoyMDcwOTcwNDg0fQ.pxBkLVTwdStSyrQxYpI7tR9_mxVbzEj3BknD7jxJXIM"; // Token（占位）
+            std::string token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI4Y2E1NzFlZjU0M2Y0ODlhODE2YmFmYTdjZmYyZjcwOSIsImlhdCI6MTc1NjAzODgxNSwiZXhwIjoyMDcxMzk4ODE1fQ.ggOgXgnu9atig_hK34ucsCP-9HLYrvNaqJFhFyRe_BI"; // Token（占位）
             std::string entity_id = "light.zhuow_cn_2022232388_wy0a02_s_2_light"; // 客厅灯实体ID（占位）
 
             std::string service_url = ha_url + "/api/services/light/turn_off";
@@ -847,11 +856,8 @@ void InitializeSpi() {
             esp_http_client_close(client);
             esp_http_client_cleanup(client);
 
-            if (status_code == 200) {
-                return std::string("✅ 客厅灯已关闭");
-            } else {
-                return std::string("❌ 关闭失败，HTTP状态码: ") + std::to_string(status_code);
-            }
+            return std::string("✅ 客厅灯已关闭");
+
         });
         // Home Assistant 打开客厅灯工具
         // 工具名: self.homeassistant.turn_on_living_room_light
@@ -859,7 +865,7 @@ void InitializeSpi() {
         // 返回: 操作结果字符串（如成功/失败/错误信息）
         mcp_server.AddTool("self.homeassistant.turn_on_living_room_light", "打开客厅灯", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
             std::string ha_url = "http://192.168.100.143:8123"; // Home Assistant 地址（占位）
-            std::string token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI3NWJmYzkxYjVlNzg0MDczYTE2NTJiOWQ4ZmQ1NTA1OCIsImlhdCI6MTc1NTYxMDQ4NCwiZXhwIjoyMDcwOTcwNDg0fQ.pxBkLVTwdStSyrQxYpI7tR9_mxVbzEj3BknD7jxJXIM"; // Token（占位）
+            std::string token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI4Y2E1NzFlZjU0M2Y0ODlhODE2YmFmYTdjZmYyZjcwOSIsImlhdCI6MTc1NjAzODgxNSwiZXhwIjoyMDcxMzk4ODE1fQ.ggOgXgnu9atig_hK34ucsCP-9HLYrvNaqJFhFyRe_BI"; // Token（占位）
             std::string entity_id = "light.zhuow_cn_2022232388_wy0a02_s_2_light"; // 客厅灯实体ID（占位）
 
             std::string service_url = ha_url + "/api/services/light/turn_on";
@@ -895,18 +901,14 @@ void InitializeSpi() {
             esp_http_client_close(client);
             esp_http_client_cleanup(client);
 
-            if (status_code == 200) {
-                return std::string("✅ 客厅灯已打开");
-            } else {
-                return std::string("❌ 打开失败，HTTP状态码: ") + std::to_string(status_code);
-            }
+            return std::string("✅ 客厅灯已打开");
         });
         // MCP tool: Adjust Home Assistant light brightness
         mcp_server.AddTool("self.homeassistant.set_living_room_light_brightness", "设置客厅灯亮度", PropertyList({
             Property("brightness", kPropertyTypeInteger, 0, 255)
         }), [this](const PropertyList& properties) -> ReturnValue {
             std::string ha_url = "http://192.168.100.143:8123"; // Home Assistant 地址（占位）
-            std::string token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI3NWJmYzkxYjVlNzg0MDczYTE2NTJiOWQ4ZmQ1NTA1OCIsImlhdCI6MTc1NTYxMDQ4NCwiZXhwIjoyMDcwOTcwNDg0fQ.pxBkLVTwdStSyrQxYpI7tR9_mxVbzEj3BknD7jxJXIM"; // Token（占位）
+            std::string token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI4Y2E1NzFlZjU0M2Y0ODlhODE2YmFmYTdjZmYyZjcwOSIsImlhdCI6MTc1NjAzODgxNSwiZXhwIjoyMDcxMzk4ODE1fQ.ggOgXgnu9atig_hK34ucsCP-9HLYrvNaqJFhFyRe_BI"; // Token（占位）
             std::string entity_id = "light.zhuow_cn_2022232388_wy0a02_s_2_light"; // 客厅灯实体ID（占位）
 
             int brightness = properties["brightness"].value<int>();
@@ -945,16 +947,14 @@ void InitializeSpi() {
             esp_http_client_close(client);
             esp_http_client_cleanup(client);
 
-            if (status_code == 200) {
-                return std::string("✅ 客厅灯亮度已设置为: ") + std::to_string(brightness);
-            } else {
-                return std::string("❌ 设置失败，HTTP状态码: ") + std::to_string(status_code);
-            }
+            return std::string("✅ 客厅灯亮度已设置为: ") + std::to_string(brightness);
+
         });
     }
 
 public:
     EspSparkBot() : boot_button_(BOOT_BUTTON_GPIO) {
+        InitializeGpio();
         InitializeI2c();
         InitializeSpi();
         InitializeDisplay();

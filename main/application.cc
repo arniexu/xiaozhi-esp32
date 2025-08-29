@@ -424,8 +424,8 @@ std::string Application::GenerateSafeFilename(const std::string& base_name, cons
     uint64_t timestamp = esp_timer_get_time() / 1000;  // 转换为毫秒
     uint32_t random = esp_random();
     
-    // 如果没有指定后缀，默认使用 .jpg
-    std::string file_suffix = suffix.empty() ? ".jpg" : suffix;
+    // 如果没有指定后缀，默认使用 .bmp
+    std::string file_suffix = suffix.empty() ? ".bmp" : suffix;
     
     return base_name + "_" + std::to_string(timestamp) + "_" + std::to_string(random) + file_suffix;
 }
@@ -438,7 +438,7 @@ bool SaveRGB565ToBMP(const camera_fb_t* fb, uint32_t width, uint32_t height, con
     for (uint32_t y = 0; y < height; ++y) {
         for (uint32_t x = 0; x < width; ++x) {
             int idx = (y * width + x) * 2;
-            uint16_t pixel = fb->buf[idx] | (fb->buf[idx + 1] << 8);
+            uint16_t pixel = (fb->buf[idx] << 8) | (fb->buf[idx + 1]);
             uint8_t r5 = (pixel >> 11) & 0x1F;
             uint8_t g6 = (pixel >> 5) & 0x3F;
             uint8_t b5 = pixel & 0x1F;
@@ -864,7 +864,7 @@ std::string Application::SearchFaceInAliyunDB() {
     // 构建WebSocket请求
     cJSON* payload = cJSON_CreateObject();
     
-    cJSON_AddStringToObject(payload, "action", "search_face");
+    cJSON_AddStringToObject(payload, "action", "find_face");
     // 🔥 修改：使用 image_path 而不是 image_url
     cJSON_AddStringToObject(payload, "image_path", image_path.c_str());
     cJSON_AddNumberToObject(payload, "limit", 5);
@@ -875,7 +875,7 @@ std::string Application::SearchFaceInAliyunDB() {
     // 🔥 详细打印WebSocket请求构造信息
     ESP_LOGI("FaceRec", "=== Constructing Search Face WebSocket Request ===");
     ESP_LOGI("FaceRec", "Request Type: face");
-    ESP_LOGI("FaceRec", "Action: search_face");
+    ESP_LOGI("FaceRec", "Action: find_face");
     ESP_LOGI("FaceRec", "Image Path: %s", image_path.c_str());
     ESP_LOGI("FaceRec", "Search Limit: 5");
     ESP_LOGI("FaceRec", "Confidence Threshold: 80.0");
@@ -1369,21 +1369,20 @@ void Application::Start() {
             } else {
                 ESP_LOGW(TAG, "Alert command requires status, message and emotion");
             }
-        } else if (strcmp(type->valuestring, "face_response") == 0) {
+        /*
+        按照这个格式解析人脸相关的websocket response
+        I (73206) FaceRec: === Received face_response ===
+        I (73206) FaceRec: Root: {"type":"face","action":"add","status":"success","message":"成功添加人员: 123AB1","data":{"request_id":"","payload":{"name":"123AB1","entity_id":"person_d8b2d542","oss_url":"https://faces-my-shanghai.oss-cn-shanghai.aliyuncs.com/faces/person_1756022252_person_d8b2d542.bmp","original_image_path":"/home/xuqianjin/face_54881_1667391770.bmp","method":"alibaba_cloud_with_oss"}}}*/
+        } else if (strcmp(type->valuestring, "face") == 0) {
             ESP_LOGI("FaceRec", "=== Received face_response ===");
-            
+            ESP_LOGI("FaceRec", "Root: %s", cJSON_PrintUnformatted(root));
             auto request_id = cJSON_GetObjectItem(root, "request_id");
-            auto payload = cJSON_GetObjectItem(root, "payload");
-            
-            if (cJSON_IsString(request_id) && cJSON_IsObject(payload)) {
+            if (cJSON_IsString(request_id) && cJSON_IsObject(root)) {
                 std::string response_id = request_id->valuestring;
-                char* payload_str = cJSON_PrintUnformatted(payload);
-                
+                char* payload_str = cJSON_PrintUnformatted(root);
                 ESP_LOGI("FaceRec", "Processing response for request ID: %s", response_id.c_str());
-                ESP_LOGD("FaceRec", "Payload: %s", payload_str);
-                
+                ESP_LOGI("FaceRec", "Payload: %s", payload_str);
                 StoreFaceResponse(response_id, payload_str);
-                
                 free(payload_str);
             }
             ESP_LOGI("FaceRec", "=== face_response processed ===");
