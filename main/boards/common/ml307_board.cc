@@ -192,3 +192,79 @@ std::string Ml307Board::GetDeviceStatusJson() {
     cJSON_Delete(root);
     return json;
 }
+
+// 发送 GET 请求到指定 URL，返回响应内容
+std::string Ml307Board::SendAndroidRequest(const std::string &text)
+{
+    char url[256];
+    snprintf(url, sizeof(url), "http://192.168.2.120:8080?%s", text.c_str());
+
+    esp_http_client_config_t config = {};
+    config.url = url;
+    config.method = HTTP_METHOD_GET;
+    config.timeout_ms = 10000;
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client)
+    {
+        ESP_LOGE(TAG, "Failed to init http client");
+        return "";
+    }
+
+    esp_err_t err = esp_http_client_perform(client);
+    // 打印返回状态码
+        ESP_LOGI(TAG, "HTTP GET Status = %d, content_length = %d",
+                static_cast<int>(esp_http_client_get_status_code(client)),
+                static_cast<int>(esp_http_client_get_content_length(client)));
+    std::string response;
+    if (err == ESP_OK)
+    {
+        int content_length = esp_http_client_get_content_length(client);
+        if (content_length > 0)
+        {
+            char *buffer = new char[content_length + 1];
+            int read_len = esp_http_client_read_response(client, buffer, content_length);
+            if (read_len > 0)
+            {
+                buffer[read_len] = '\0';
+                response.assign(buffer, read_len);
+            }
+            delete[] buffer;
+        }
+    }
+    else
+    {
+        ESP_LOGE(TAG, "HTTP GET request failed: %s", esp_err_to_name(err));
+    }
+    esp_http_client_cleanup(client);
+    return response;
+}
+
+// 实现一个函数来控制安卓显示表情 
+void Ml307Board::ShowAndroidEmoji(const std::string &emoji_name)
+{
+    std::string command = "type=llm&text=" + emoji_name;
+    SendAndroidRequest(command);
+}
+
+// 实现一个函数来控制安卓显示文本
+void Ml307Board::ShowAndroidText(const std::string &text)
+{
+    std::string command = "type=text&text=\"" + text + "\"";
+    SendAndroidRequest(command);
+}
+
+// 实现一个函数来控制安卓拍照并上传服务器
+std::string Ml307Board::ShowAndroidTakePhoto()
+{
+    // take_photo 带两个参数一个是服务器地址一个是照片文件名，参数格式遵守http协议
+    // 根据当前系统时间生成文件名
+    time_t now = time(nullptr);
+    struct tm *tm_info = localtime(&now);
+    char filename[64];
+    strftime(filename, sizeof(filename), "photo_%Y%m%d_%H%M%S.jpg", tm_info);
+    std::string command = "type=takePhoto&name=" + std::string(filename);
+    SendAndroidRequest(command);
+    return std::string(filename);
+}
+

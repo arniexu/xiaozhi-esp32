@@ -28,6 +28,7 @@
 #include "cJSON.h"            // 如果还没有的话也需要添加
 #include "esp_crt_bundle.h"   // ESP32证书包
 #include <sstream>            // 用于 std::stringstream
+#include <set>                // 用于 std::set
 // Add a simple base64_encode function declaration if not provided by any header
 std::string base64_encode(const uint8_t* data, size_t len);
 
@@ -128,7 +129,7 @@ private:
             ESP_LOGE(TAG, "❌ Storage write test failed");
         }
     }
-void InitializeSpi() {
+    void InitializeSpi() {
         spi_bus_config_t buscfg = {};
         buscfg.mosi_io_num = DISPLAY_MOSI_GPIO;
         buscfg.miso_io_num = GPIO_NUM_NC;
@@ -137,8 +138,8 @@ void InitializeSpi() {
         buscfg.quadhd_io_num = GPIO_NUM_NC;
         buscfg.max_transfer_sz = DISPLAY_WIDTH * DISPLAY_HEIGHT * sizeof(uint16_t);
         ESP_ERROR_CHECK(spi_bus_initialize(SPI3_HOST, &buscfg, SPI_DMA_CH_AUTO));
-    }
-
+    }    
+    
     //实现函数初始化gpio3和gpio47为输出并且输出低电平
     void InitializeGpio() {
         gpio_set_direction(GPIO_NUM_3, GPIO_MODE_OUTPUT);
@@ -349,30 +350,32 @@ void InitializeSpi() {
         return result;
     }
 
+    // 实现一个函数来控制安卓播
     // 查询享老汇健康数据
-    std::string QueryXiangLaoHuiHealthData(const std::string& mobile_phone) {
+    std::string QueryXiangLaoHuiHealthData(const std::string &mobile_phone)
+    {
         ESP_LOGI("XiangLaoHui", "Querying health data for mobile: %s", mobile_phone.c_str());
-        
+
         // 生成流水号和nonce_str
         std::string serial_number = GenerateSerialNumber();
         std::string nonce_str = CalculateNonce(serial_number, mobile_phone, XIANGLAO_DOMAIN);
-        
+
         ESP_LOGI("XiangLaoHui", "Serial number: %s", serial_number.c_str());
         ESP_LOGI("XiangLaoHui", "Nonce string: %s", nonce_str.c_str());
-        
+
         // 构建请求JSON - 严格按照API规范
-        cJSON* request_json = cJSON_CreateObject();
+        cJSON *request_json = cJSON_CreateObject();
         cJSON_AddStringToObject(request_json, "serial_number", serial_number.c_str());
         cJSON_AddStringToObject(request_json, "mobile_phone", mobile_phone.c_str());
         cJSON_AddStringToObject(request_json, "nonce_str", nonce_str.c_str());
-        
-        char* json_string = cJSON_Print(request_json);
+
+        char *json_string = cJSON_Print(request_json);
         std::string request_body(json_string);
         free(json_string);
         cJSON_Delete(request_json);
-        
+
         ESP_LOGI("XiangLaoHui", "Request body: %s", request_body.c_str());
-        
+
         // 发送HTTP POST请求
         esp_http_client_config_t config = {};
         config.url = XIANGLAO_API_URL;
@@ -564,7 +567,32 @@ void InitializeSpi() {
             light_mode_ = LIGHT_MODE_MAX;
             return true;
         });
-
+        // AddTool("self.screen.set_theme",
+        //     "Set the theme of the screen. The theme can be `light` or `dark`.",
+        //     PropertyList({
+        //         Property("theme", kPropertyTypeString)
+        //     }),
+        //     [display](const PropertyList& properties) -> ReturnValue {
+        //         display->SetTheme(properties["theme"].value<std::string>().c_str());
+        //         return true;
+        //     });
+        // // 实现mcp方法给安卓发送http请求，请求格式http://192.168.2.240:8080?type=llm&text=文本
+        // 将 text 参数做成表情的枚举，只允许传入几个固定的表情类型
+        // 允许的表情类型: "smile", "sad", "angry", "surprised", "love"
+        mcp_server.AddTool("self.android.make_emoji", 
+            "做个表情，表情可以是: `smile`, `sad`, `angry`, `surprised`, `love`", PropertyList({
+            Property("emoji", kPropertyTypeString)
+        }), [this](const PropertyList& properties) -> ReturnValue {
+            static const std::set<std::string> allowed_emojis = {
+            "smile", "sad", "angry", "surprised", "love"
+            };
+            std::string emoji = properties["emoji"].value<std::string>();
+            if (allowed_emojis.find(emoji) == allowed_emojis.end()) {
+            throw std::runtime_error("不支持的表情类型，只能是: smile, sad, angry, surprised, love");
+            }
+            ShowAndroidEmoji(emoji);
+            return "已发送表情: " + emoji;
+        });
         // 享老汇健康数据查询工具,硬编码账户信息
         mcp_server.AddTool("self.health.query_elder_health_data", "查询老人健康数据", PropertyList({
             Property("mobile_phone", kPropertyTypeString)

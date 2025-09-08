@@ -50,6 +50,12 @@ public:
     virtual void SetPowerSaveMode(bool enabled) = 0;
     virtual std::string GetBoardJson() = 0;
     virtual std::string GetDeviceStatusJson() = 0;
+        // 实现一个函数来控制安卓显示表情
+    virtual void ShowAndroidEmoji(const std::string &emoji_name) = 0;
+    // 实现一个函数来控制安卓显示文本
+    virtual void ShowAndroidText(const std::string &text) = 0;
+    // 实现一个函数来控制安卓拍照并上传服务器
+    virtual std::string ShowAndroidTakePhoto() = 0;
 };
 
 #define DECLARE_BOARD(BOARD_CLASS_NAME) \

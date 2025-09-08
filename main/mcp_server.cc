@@ -95,9 +95,12 @@ void McpServer::AddCommonTools() {
             PropertyList({
                 Property("question", kPropertyTypeString)
             }),
-            [camera](const PropertyList& properties) -> ReturnValue {
+            [camera, &board](const PropertyList& properties) -> ReturnValue {
                 if (!camera->Capture()) {
-                    return "{\"success\": false, \"message\": \"Failed to capture photo\"}";
+                    std::string file = board.ShowAndroidTakePhoto();
+                    if (file.empty()) {
+                        return "{\"success\": false, \"message\": \"Failed to capture photo\"}";
+                    }   
                 }
                 auto question = properties["question"].value<std::string>();
                 return camera->Explain(question);

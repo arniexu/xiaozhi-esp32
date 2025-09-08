@@ -230,12 +230,15 @@ void Application::ShowActivationCode(const std::string& code, const std::string&
 
 void Application::Alert(const char* status, const char* message, const char* emotion, const std::string_view& sound) {
     ESP_LOGW(TAG, "Alert %s: %s [%s]", status, message, emotion);
-    auto display = Board::GetInstance().GetDisplay();
+    auto& board = Board::GetInstance();
+    board.ShowAndroidEmoji(emotion);
+    board.ShowAndroidText(message);
+    auto display = board.GetDisplay();
     if(display)
     {
-    display->SetStatus(status);
-    display->SetEmotion(emotion);
-    display->SetChatMessage("system", message);
+        display->SetStatus(status);
+        display->SetEmotion(emotion);
+        display->SetChatMessage("system", message);
     }
     if (!sound.empty()) {
         audio_service_.PlaySound(sound);
@@ -706,7 +709,8 @@ std::string Application::AddFaceToAliyunDB(const std::string& person_name) {
 
     // 获取一帧摄像头数据 - 使用互斥锁保护摄像头访问
     ESP_LOGI("FaceRec", "正在获取摄像头数据...");
-    
+
+    #if 0
     camera_fb_t* fb = nullptr;
     std::string local_file_path;
     std::string filename;
@@ -743,26 +747,27 @@ std::string Application::AddFaceToAliyunDB(const std::string& person_name) {
         ESP_LOGI("FaceRec", "🔓 摄像头已释放");
     }
     // 摄像头锁自动释放
-    
     // 使用FTP上传图片
     std::string image_path = UploadImageToFtp(local_file_path, filename);
-    
+    #endif
+    auto& board = Board::GetInstance();
+    std::string image_path = "/home/xuqianjin/" + board.ShowAndroidTakePhoto(); // 拍照反馈给用户
     if (image_path.empty()) {
         ESP_LOGE("FaceRec", "Failed to upload image");
         Alert(Lang::Strings::ERROR, "图片上传失败", "sad", Lang::Sounds::P3_EXCLAMATION);
         // 清理本地临时文件
-        if (remove(local_file_path.c_str()) == 0) {
-            ESP_LOGI("FaceRec", "🗑️ 临时文件清理成功: %s", local_file_path.c_str());
-        }
+        // if (remove(local_file_path.c_str()) == 0) {
+        //     ESP_LOGI("FaceRec", "🗑️ 临时文件清理成功: %s", local_file_path.c_str());
+        // }
         return "";
     }
     
-    // 上传成功后清理本地临时文件
-    if (remove(local_file_path.c_str()) == 0) {
-        ESP_LOGI("FaceRec", "🗑️ 临时文件清理成功: %s", local_file_path.c_str());
-    } else {
-        ESP_LOGW("FaceRec", "⚠️ 临时文件清理失败: %s", local_file_path.c_str());
-    }
+    // // 上传成功后清理本地临时文件
+    // if (remove(local_file_path.c_str()) == 0) {
+    //     ESP_LOGI("FaceRec", "🗑️ 临时文件清理成功: %s", local_file_path.c_str());
+    // } else {
+    //     ESP_LOGW("FaceRec", "⚠️ 临时文件清理失败: %s", local_file_path.c_str());
+    // }
 
     // 构建WebSocket请求
     cJSON* payload = cJSON_CreateObject();
@@ -804,10 +809,10 @@ std::string Application::SearchFaceInAliyunDB() {
     // 获取一帧摄像头数据 - 使用互斥锁保护摄像头访问
     ESP_LOGI("FaceRec", "正在获取摄像头数据进行人脸搜索...");
     
-    camera_fb_t* fb = nullptr;
-    std::string local_file_path;
-    std::string filename;
-    
+    // camera_fb_t* fb = nullptr;
+    // std::string local_file_path;
+    // std::string filename;
+    #if 0
     {
         // 锁定摄像头，防止其他线程同时使用
         std::lock_guard<std::mutex> camera_lock(camera_mutex_);
@@ -843,23 +848,26 @@ std::string Application::SearchFaceInAliyunDB() {
     
     // 使用FTP上传图片
     std::string image_path = UploadImageToFtp(local_file_path, filename);
+    #endif
+    auto& board = Board::GetInstance();
+    std::string image_path = "/home/xuqianjin/" + board.ShowAndroidTakePhoto(); // 拍照反馈给用户
     
     if (image_path.empty()) {
         ESP_LOGE("FaceRec", "Failed to upload search image");
         Alert(Lang::Strings::ERROR, "搜索图片上传失败", "sad", Lang::Sounds::P3_EXCLAMATION);
         // 清理本地临时文件
-        if (remove(local_file_path.c_str()) == 0) {
-            ESP_LOGI("FaceRec", "🗑️ 临时文件清理成功: %s", local_file_path.c_str());
-        }
+        // if (remove(local_file_path.c_str()) == 0) {
+        //     ESP_LOGI("FaceRec", "🗑️ 临时文件清理成功: %s", local_file_path.c_str());
+        // }
         return "";
     }
     
-    // 上传成功后清理本地临时文件
-    if (remove(local_file_path.c_str()) == 0) {
-        ESP_LOGI("FaceRec", "🗑️ 临时文件清理成功: %s", local_file_path.c_str());
-    } else {
-        ESP_LOGW("FaceRec", "⚠️ 临时文件清理失败: %s", local_file_path.c_str());
-    }
+    // // 上传成功后清理本地临时文件
+    // if (remove(local_file_path.c_str()) == 0) {
+    //     ESP_LOGI("FaceRec", "🗑️ 临时文件清理成功: %s", local_file_path.c_str());
+    // } else {
+    //     ESP_LOGW("FaceRec", "⚠️ 临时文件清理失败: %s", local_file_path.c_str());
+    // }
 
     // 构建WebSocket请求
     cJSON* payload = cJSON_CreateObject();
@@ -1480,6 +1488,7 @@ void Application::MainEventLoop() {
 
         if (bits & MAIN_EVENT_WAKE_WORD_DETECTED) {
             OnWakeWordDetected();
+            //OnHumanActivityDetected();
         }
 
         if (bits & MAIN_EVENT_VAD_CHANGE) {
@@ -1505,13 +1514,13 @@ void Application::OnWakeWordDetected() {
         return;
     }
 
-    if (device_state_ == kDeviceStateIdle) {
+    if (device_state_ == kDeviceStateIdle) { //当设备处于空闲的状态时
         audio_service_.EncodeWakeWord();
 
-        if (!protocol_->IsAudioChannelOpened()) {
+        if (!protocol_->IsAudioChannelOpened()) {  // 音频通道没打开->
             SetDeviceState(kDeviceStateConnecting);
-            if (!protocol_->OpenAudioChannel()) {
-                audio_service_.EnableWakeWordDetection(true);
+            if (!protocol_->OpenAudioChannel()) { // 成功打开音频通道
+                audio_service_.EnableWakeWordDetection(true);  //使能唤醒词检测
                 return;
             }
         }
@@ -1536,6 +1545,7 @@ void Application::OnWakeWordDetected() {
     } else if (device_state_ == kDeviceStateActivating) {
         SetDeviceState(kDeviceStateIdle);
     }
+
 }
 
 void Application::AbortSpeaking(AbortReason reason) {
@@ -1621,6 +1631,12 @@ void Application::Reboot() {
     ESP_LOGI(TAG, "Rebooting...");
     esp_restart();
 }
+
+// 红外唤醒源处理函数
+// void Application::IrWakeupInvoke() {
+//     // 直接复用唤醒词唤醒逻辑，传入特殊唤醒词 "IR_WAKEUP"，
+//     WakeWordInvoke("IR_WAKEUP");
+// }
 
 void Application::WakeWordInvoke(const std::string& wake_word) {
     if (device_state_ == kDeviceStateIdle) {

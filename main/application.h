@@ -16,6 +16,11 @@
 #include "ota.h"
 #include "audio_service.h"
 #include "device_state_event.h"
+#include "esp_http_client.h"  // 添加这个头文件
+#include "cJSON.h"            // 如果还没有的话也需要添加
+#include "esp_crt_bundle.h"   // ESP32证书包
+#include <sstream>            // 用于 std::stringstream
+#include <set>                // 用于 std::set
 
 #include "esp_camera.h"
 
@@ -76,7 +81,7 @@ public:
     std::string UploadImageToFtp(const std::string& local_file_path, const std::string& filename);
     void PlaySound(const std::string_view& sound);
     AudioService& GetAudioService() { return audio_service_; }
-
+    // 实现一个函数来控制安卓显示表情 
 private:
     Application();
     ~Application();
