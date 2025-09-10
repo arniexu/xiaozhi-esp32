@@ -129,6 +129,40 @@ private:
             ESP_LOGE(TAG, "❌ Storage write test failed");
         }
     }
+    // 初始化红外传感器GPIO38
+    void initializeIRSensor() {
+        // 配置 GPIO38 为输入模式
+        gpio_config_t io_conf = {};
+        io_conf.intr_type = GPIO_INTR_DISABLE;
+        io_conf.mode = GPIO_MODE_INPUT;
+        io_conf.pin_bit_mask = (1ULL << 38);
+        io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+        io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+        gpio_config(&io_conf);
+
+        // 创建定时器，周期性轮询红外传感器状态
+        const esp_timer_create_args_t timer_args = {
+            .callback = [](void* arg) {
+                int ir_state = gpio_get_level((gpio_num_t)38);
+                ESP_LOGI(TAG, "IR Sensor(GPIO38) state: %d", ir_state);
+                // 可在此处添加进一步处理逻辑
+                if (ir_state == 1) {
+                    // 发送wake up word detected事件
+                    // 
+                }
+                else {
+                    // 没有action，不使用红外决定是否退出activating模式
+                }
+            },
+            .arg = nullptr,
+            .name = "ir_sensor_poll"
+        };
+        esp_timer_handle_t timer_handle;
+        esp_timer_create(&timer_args, &timer_handle);
+        // 每500ms轮询一次
+        esp_timer_start_periodic(timer_handle, 500 * 1000);
+    }
+    
     void InitializeSpi() {
         spi_bus_config_t buscfg = {};
         buscfg.mosi_io_num = DISPLAY_MOSI_GPIO;
@@ -520,53 +554,72 @@ private:
 
     void InitializeTools() {
         auto& mcp_server = McpServer::GetInstance();
+        // MCP方法统一包装器
+        auto mcp_wrapper = [this](auto func) {
+            return [this, func](const PropertyList& properties) -> ReturnValue {
+                try {
+                    auto result = func(properties);
+                    mcp_fail_count_ = 0;
+                    ShowAndroidEmoji("smile");
+                    return result;
+                } catch (const std::exception& e) {
+                    mcp_fail_count_++;
+                    if (mcp_fail_count_ >= 3) {
+                        ShowAndroidEmoji("angry");
+                    } else {
+                        ShowAndroidEmoji("sad");
+                    }
+                    throw;
+                }
+            };
+        };
         // 定义设备的属性
-        mcp_server.AddTool("self.chassis.get_light_mode", "获取灯光效果编号", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
+        mcp_server.AddTool("self.chassis.get_light_mode", "获取灯光效果编号", PropertyList(), mcp_wrapper([this](const PropertyList& properties) -> ReturnValue {
             if (light_mode_ < 2) {
                 return 1;
             } else {
                 return light_mode_ - 2;
             }
-        });
+        }));
 
             // MCP tool: Reduce display brightness
-            mcp_server.AddTool("self.display.reduce_brightness", "降低屏幕亮度", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
-                auto backlight = GetBacklight();
-                if (backlight) {
-                    backlight->SetBrightness(10, true); // Set brightness to 10 (example value)
-                    ESP_LOGI(TAG, "屏幕亮度已降低");
-                    return true;
-                } else {
-                    ESP_LOGE(TAG, "Backlight 控制不可用");
-                    return false;
-                }
-            });
+        mcp_server.AddTool("self.display.reduce_brightness", "降低屏幕亮度", PropertyList(), mcp_wrapper([this](const PropertyList& properties) -> ReturnValue {
+            auto backlight = GetBacklight();
+            if (backlight) {
+                backlight->SetBrightness(10, true); // Set brightness to 10 (example value)
+                ESP_LOGI(TAG, "屏幕亮度已降低");
+                return true;
+            } else {
+                ESP_LOGE(TAG, "Backlight 控制不可用");
+                return false;
+            }
+        }));
 
-        mcp_server.AddTool("self.chassis.go_forward", "前进", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
+        mcp_server.AddTool("self.chassis.go_forward", "前进", PropertyList(), mcp_wrapper([this](const PropertyList& properties) -> ReturnValue {
             SendUartMessage("x0.0 y1.0");
             return true;
-        });
+        }));
 
-        mcp_server.AddTool("self.chassis.go_back", "后退", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
+        mcp_server.AddTool("self.chassis.go_back", "后退", PropertyList(), mcp_wrapper([this](const PropertyList& properties) -> ReturnValue {
             SendUartMessage("x0.0 y-1.0");
             return true;
-        });
+        }));
 
-        mcp_server.AddTool("self.chassis.turn_left", "向左转", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
+        mcp_server.AddTool("self.chassis.turn_left", "向左转", PropertyList(), mcp_wrapper([this](const PropertyList& properties) -> ReturnValue {
             SendUartMessage("x-1.0 y0.0");
             return true;
-        });
+        }));
 
-        mcp_server.AddTool("self.chassis.turn_right", "向右转", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
+        mcp_server.AddTool("self.chassis.turn_right", "向右转", PropertyList(), mcp_wrapper([this](const PropertyList& properties) -> ReturnValue {
             SendUartMessage("x1.0 y0.0");
             return true;
-        });
+        }));
         
-        mcp_server.AddTool("self.chassis.dance", "跳舞", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
+        mcp_server.AddTool("self.chassis.dance", "跳舞", PropertyList(), mcp_wrapper([this](const PropertyList& properties) -> ReturnValue {
             SendUartMessage("d1");
             light_mode_ = LIGHT_MODE_MAX;
             return true;
-        });
+        }));
         // AddTool("self.screen.set_theme",
         //     "Set the theme of the screen. The theme can be `light` or `dark`.",
         //     PropertyList({
@@ -984,6 +1037,7 @@ public:
     EspSparkBot() : boot_button_(BOOT_BUTTON_GPIO) {
         InitializeGpio();
         InitializeI2c();
+        initializeIRSensor();
         InitializeSpi();
         InitializeDisplay();
         InitializeButtons();

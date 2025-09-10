@@ -97,12 +97,17 @@ void McpServer::AddCommonTools() {
             }),
             [camera, &board](const PropertyList& properties) -> ReturnValue {
                 if (!camera->Capture()) {
-                    std::string file = board.ShowAndroidTakePhoto();
-                    if (file.empty()) {
+                    //@TODO: 需要安卓侧添加一个新的接口，拍照并组合成mcp vision expalaain的请求上传服务器
+                    std::string fileName = board.ShowAndroidTakePhoto();
+                    if (fileName.empty()) {
                         return "{\"success\": false, \"message\": \"Failed to capture photo\"}";
-                    }   
+                    }
+                    //@TODO: 构造ftp文件服务器上的路径
+                    //@TODO: 从安卓通过ftp下载下刚刚拍摄的照片
+                    std::string filePath = Application::GetInstance().DownloadImageFromFtp("", "", "");
                 }
                 auto question = properties["question"].value<std::string>();
+                //@TODO: 修改Explain方法
                 return camera->Explain(question);
             });
     }
@@ -334,6 +339,9 @@ void McpServer::DoToolCall(int id, const std::string& tool_name, const cJSON* to
         return;
     }
 
+
+    static int mcp_fail_count = 0;
+    auto& board = Board::GetInstance();
     PropertyList arguments = (*tool_iter)->properties();
     try {
         for (auto& argument : arguments) {
@@ -355,12 +363,26 @@ void McpServer::DoToolCall(int id, const std::string& tool_name, const cJSON* to
             if (!argument.has_default_value() && !found) {
                 ESP_LOGE(TAG, "tools/call: Missing valid argument: %s", argument.name().c_str());
                 ReplyError(id, "Missing valid argument: " + argument.name());
+                // 失败时表情
+                mcp_fail_count++;
+                if (mcp_fail_count >= 3) {
+                    board.ShowAndroidEmoji("angry");
+                } else {
+                    board.ShowAndroidEmoji("sad");
+                }
                 return;
             }
         }
     } catch (const std::exception& e) {
         ESP_LOGE(TAG, "tools/call: %s", e.what());
         ReplyError(id, e.what());
+        // 失败时表情
+        mcp_fail_count++;
+        if (mcp_fail_count >= 3) {
+            board.ShowAndroidEmoji("angry");
+        } else {
+            board.ShowAndroidEmoji("sad");
+        }
         return;
     }
 
@@ -374,12 +396,23 @@ void McpServer::DoToolCall(int id, const std::string& tool_name, const cJSON* to
     ESP_LOGI(TAG, "Starting tool call thread for '%s' with stack size: %d bytes", tool_name.c_str(), stack_size);
 
     // Use a thread to call the tool to avoid blocking the main thread
-    tool_call_thread_ = std::thread([this, id, tool_iter, arguments = std::move(arguments)]() {
+    tool_call_thread_ = std::thread([this, &board, id, tool_iter, arguments = std::move(arguments)]() {
         try {
-            ReplyResult(id, (*tool_iter)->Call(arguments));
+            auto result = (*tool_iter)->Call(arguments);
+            // 成功时表情
+            mcp_fail_count = 0;
+            board.ShowAndroidEmoji("smile");
+            ReplyResult(id, result);
         } catch (const std::exception& e) {
             ESP_LOGE(TAG, "tools/call: %s", e.what());
             ReplyError(id, e.what());
+            // 失败时表情
+            mcp_fail_count++;
+            if (mcp_fail_count >= 3) {
+                board.ShowAndroidEmoji("angry");
+            } else {
+                board.ShowAndroidEmoji("sad");
+            }
         }
     });
     tool_call_thread_.detach();

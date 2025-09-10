@@ -79,6 +79,7 @@ public:
     std::string SearchFaceInAliyunDB();
     std::string CreateImageFile(camera_fb_t* fb, const std::string& filename);
     std::string UploadImageToFtp(const std::string& local_file_path, const std::string& filename);
+    std::string DownloadImageFromFtp(const std::string& ftp_url, const std::string& username, const std::string& password);
     void PlaySound(const std::string_view& sound);
     AudioService& GetAudioService() { return audio_service_; }
     // 实现一个函数来控制安卓显示表情 

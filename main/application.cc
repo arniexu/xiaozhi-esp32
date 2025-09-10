@@ -495,12 +495,35 @@ std::string Application::CreateImageFile(camera_fb_t* fb, const std::string& fil
     }
 }
 
-/**
- * 通过FTP上传文件
- * @param local_file_path 本地文件路径
- * @param filename 远程文件名
- * @return 上传后的文件路径，失败返回空字符串
- */
+
+// 从FTP服务器下载图片到本地文件
+// ftp_url: 形如ftp://host/path/to/image.jpg
+// username: 用户名
+// password: 密码
+// local_path: 下载到本地的完整路径
+// 成功则返回本地文件路径，否则返回空字符串
+std::string Application::DownloadImageFromFtp(const std::string& ftp_url, const std::string& username, const std::string& password) {
+    char hdr[1024] = {0};
+    char body[4096] = {0};
+    std::string local_path;
+    std::string url = ftp_url;
+    // 插入用户名密码到URL（如有）
+    if (!username.empty() && !password.empty()) {
+        size_t pos = url.find("ftp://");
+        if (pos == 0) {
+            url.insert(6, username + ":" + password + "@");
+        }
+    }
+    // 调用Curl_FTP进行下载（mode=0为下载）
+    int ret = Curl_FTP(0, (char*)url.c_str(), nullptr, (char*)local_path.c_str(), hdr, body, sizeof(hdr), sizeof(body));
+    if (ret == 0) {
+        ESP_LOGI(TAG, "FTP下载成功: %s -> %s", url.c_str(), local_path.c_str());
+        return local_path;
+    } else {
+        ESP_LOGE(TAG, "FTP下载失败: %s, 错误码: %d, hdr: %s, body: %s", url.c_str(), ret, hdr, body);
+        return "";
+    }
+}
 
 std::string Application::UploadImageToFtp(const std::string& local_file_path, const std::string& filename) {
     if (local_file_path.empty() || filename.empty()) {
