@@ -1192,6 +1192,11 @@ std::string Application::WaitForFaceResponse(const std::string& request_id, int 
     }
 }
 
+// 模拟唤醒词检测事件
+void Application::SimulateWakeWordDetected() {
+    xEventGroupSetBits(event_group_, MAIN_EVENT_WAKE_WORD_DETECTED);
+}
+
 // 清理过期的响应（可选的辅助函数）
 void Application::CleanupExpiredResponses() {
     std::lock_guard<std::mutex> lock(face_mutex_);

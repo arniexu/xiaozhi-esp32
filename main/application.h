@@ -82,6 +82,8 @@ public:
     std::string DownloadImageFromFtp(const std::string& ftp_url, const std::string& username, const std::string& password);
     void PlaySound(const std::string_view& sound);
     AudioService& GetAudioService() { return audio_service_; }
+    // 模拟唤醒词检测事件
+    void SimulateWakeWordDetected();
     // 实现一个函数来控制安卓显示表情 
 private:
     Application();
@@ -115,6 +117,7 @@ private:
     void OnWakeWordDetected();
     void CheckNewVersion(Ota& ota);
     void ShowActivationCode(const std::string& code, const std::string& message);
+    void 
     void OnClockTimer();
     void SetListeningMode(ListeningMode mode);
     std::string SendFaceRequest(const std::string& json_request);

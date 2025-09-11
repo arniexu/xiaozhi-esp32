@@ -143,12 +143,13 @@ private:
         // 创建定时器，周期性轮询红外传感器状态
         const esp_timer_create_args_t timer_args = {
             .callback = [](void* arg) {
+                auto& app = Application::GetInstance();
                 int ir_state = gpio_get_level((gpio_num_t)38);
                 ESP_LOGI(TAG, "IR Sensor(GPIO38) state: %d", ir_state);
                 // 可在此处添加进一步处理逻辑
                 if (ir_state == 1) {
                     // 发送wake up word detected事件
-                    // 
+                    app.SimulateWakeWordDetected();
                 }
                 else {
                     // 没有action，不使用红外决定是否退出activating模式
@@ -554,13 +555,31 @@ private:
 
     void InitializeTools() {
         auto& mcp_server = McpServer::GetInstance();
-        // MCP方法统一包装器
+        // MCP方法统一包装器，支持失败返回值也显示表情
         auto mcp_wrapper = [this](auto func) {
             return [this, func](const PropertyList& properties) -> ReturnValue {
                 try {
                     auto result = func(properties);
-                    mcp_fail_count_ = 0;
-                    ShowAndroidEmoji("smile");
+                    bool failed = false;
+                    // 针对常见类型判断失败
+                    if constexpr (std::is_same_v<decltype(result), bool>) {
+                        failed = !result;
+                    } else if constexpr (std::is_same_v<decltype(result), std::string>) {
+                        failed = result.empty() || result.find("❌") != std::string::npos;
+                    } else if constexpr (std::is_pointer_v<decltype(result)>) {
+                        failed = (result == nullptr);
+                    }
+                    if (failed) {
+                        mcp_fail_count_++;
+                        if (mcp_fail_count_ >= 3) {
+                            ShowAndroidEmoji("angry");
+                        } else {
+                            ShowAndroidEmoji("sad");
+                        }
+                    } else {
+                        mcp_fail_count_ = 0;
+                        ShowAndroidEmoji("smile");
+                    }
                     return result;
                 } catch (const std::exception& e) {
                     mcp_fail_count_++;
