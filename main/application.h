@@ -117,7 +117,6 @@ private:
     void OnWakeWordDetected();
     void CheckNewVersion(Ota& ota);
     void ShowActivationCode(const std::string& code, const std::string& message);
-    void 
     void OnClockTimer();
     void SetListeningMode(ListeningMode mode);
     std::string SendFaceRequest(const std::string& json_request);

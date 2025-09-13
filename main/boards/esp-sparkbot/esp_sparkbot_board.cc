@@ -129,13 +129,13 @@ private:
             ESP_LOGE(TAG, "❌ Storage write test failed");
         }
     }
-    // 初始化红外传感器GPIO38
+    // 初始化红外传感器GPIO35
     void initializeIRSensor() {
-        // 配置 GPIO38 为输入模式
+        // 配置 GPIO35 为输入模式
         gpio_config_t io_conf = {};
         io_conf.intr_type = GPIO_INTR_DISABLE;
         io_conf.mode = GPIO_MODE_INPUT;
-        io_conf.pin_bit_mask = (1ULL << 38);
+        io_conf.pin_bit_mask = (1ULL << 35);
         io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
         io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
         gpio_config(&io_conf);
@@ -143,15 +143,18 @@ private:
         // 创建定时器，周期性轮询红外传感器状态
         const esp_timer_create_args_t timer_args = {
             .callback = [](void* arg) {
-                auto& app = Application::GetInstance();
-                int ir_state = gpio_get_level((gpio_num_t)38);
-                ESP_LOGI(TAG, "IR Sensor(GPIO38) state: %d", ir_state);
+                auto* app_ptr = static_cast<Application*>(arg);
+                auto& app = *app_ptr;
+                int ir_state = gpio_get_level((gpio_num_t)35);
+                ESP_LOGI(TAG, "IR Sensor(GPIO35) state: %d", ir_state);
                 // 可在此处添加进一步处理逻辑
-                if (ir_state == 1) {
-                    // 发送wake up word detected事件
+                if (ir_state == 0) {
+                     // 发送wake up word detected事件
+                    ESP_LOGI(TAG, "IR Sensor triggered - Simulating Wake Word Detected");   
                     app.SimulateWakeWordDetected();
                 }
                 else {
+                    ESP_LOGI(TAG, "IR Sensor not triggered");
                     // 没有action，不使用红外决定是否退出activating模式
                 }
             },
@@ -159,7 +162,11 @@ private:
             .name = "ir_sensor_poll"
         };
         esp_timer_handle_t timer_handle;
-        esp_timer_create(&timer_args, &timer_handle);
+        // 获取 Application 实例并作为 arg 传递
+        auto& app = Application::GetInstance();
+        esp_timer_create_args_t timer_args_with_arg = timer_args;
+        timer_args_with_arg.arg = &app;
+        esp_timer_create(&timer_args_with_arg, &timer_handle);
         // 每500ms轮询一次
         esp_timer_start_periodic(timer_handle, 500 * 1000);
     }
@@ -558,6 +565,7 @@ private:
         // MCP方法统一包装器，支持失败返回值也显示表情
         auto mcp_wrapper = [this](auto func) {
             return [this, func](const PropertyList& properties) -> ReturnValue {
+                static int mcp_fail_count_ = 0; 
                 try {
                     auto result = func(properties);
                     bool failed = false;
