@@ -1514,6 +1514,7 @@ void Application::MainEventLoop() {
             }
         }
 
+
         if (bits & MAIN_EVENT_WAKE_WORD_DETECTED) {
             OnWakeWordDetected();
             //OnHumanActivityDetected();
@@ -1537,6 +1538,7 @@ void Application::MainEventLoop() {
     }
 }
 
+// 任务1 步骤2 检测到红外信号触发后，将唤醒词发送给服务器，启动人脸识别
 void Application::OnWakeWordDetected() {
     if (!protocol_) {
         return;
@@ -1555,9 +1557,11 @@ void Application::OnWakeWordDetected() {
 
         auto wake_word = audio_service_.GetLastWakeWord();
         ESP_LOGI(TAG, "Wake word detected: %s", wake_word.c_str());
+        // 将唤醒词发送给服务器转换成文字
 #if CONFIG_USE_AFE_WAKE_WORD || CONFIG_USE_CUSTOM_WAKE_WORD
         // Encode and send the wake word data to the server
         while (auto packet = audio_service_.PopWakeWordPacket()) {
+            // 魔改websocket协议，发送唤醒词音频数据的同时触发服务器阿里云人脸识别
             protocol_->SendAudio(std::move(packet));
         }
         // Set the chat state to wake word detected
@@ -1566,8 +1570,10 @@ void Application::OnWakeWordDetected() {
 #else
         SetListeningMode(aec_mode_ == kAecOff ? kListeningModeAutoStop : kListeningModeRealtime);
         // Play the pop up sound to indicate the wake word is detected
+        // 播报激活提示音
         audio_service_.PlaySound(Lang::Sounds::P3_POPUP);
 #endif
+        // 等待首轮对话完成后，开启人脸识别
     } else if (device_state_ == kDeviceStateSpeaking) {
         AbortSpeaking(kAbortReasonWakeWordDetected);
     } else if (device_state_ == kDeviceStateActivating) {
