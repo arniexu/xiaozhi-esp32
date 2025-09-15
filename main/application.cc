@@ -972,6 +972,7 @@ std::string Application::SendFaceRequest(const std::string& json_request) {
     return response;
 }
 
+// 任务三，，识别人脸返回调用者的名字
 std::string Application::whoareyou() {
     ESP_LOGI("FaceRec", "=== WHO ARE YOU - Starting Face Recognition ===");
     ESP_LOGI("FaceRec", "开始人脸识别...");
