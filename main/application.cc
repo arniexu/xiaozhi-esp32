@@ -503,8 +503,8 @@ std::string Application::CreateImageFile(camera_fb_t* fb, const std::string& fil
 // local_path: 下载到本地的完整路径
 // 成功则返回本地文件路径，否则返回空字符串
 std::string Application::DownloadImageFromFtp(const std::string& ftp_url, const std::string& username, const std::string& password) {
-    char hdr[1024] = {0};
-    char body[4096] = {0};
+    char hdr[128] = {0};
+    char body[256] = {0};
     std::string local_path;
     std::string url = ftp_url;
     // 插入用户名密码到URL（如有）
