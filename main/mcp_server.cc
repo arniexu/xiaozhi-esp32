@@ -84,6 +84,7 @@ void McpServer::AddCommonTools() {
             });
     }
 
+    // 任务2： 不上传图片而是上传图片的路径，服务器端也需要修改
     auto camera = board.GetCamera();
     if (camera) {
         AddTool("self.camera.take_photo",
