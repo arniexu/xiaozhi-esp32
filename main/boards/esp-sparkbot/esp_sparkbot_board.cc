@@ -565,8 +565,6 @@ private:
         // MCP方法统一包装器，支持失败返回值也显示表情
         auto mcp_wrapper = [this](auto func) {
             return [this, func](const PropertyList& properties) -> ReturnValue {
-
-                auto mcp_fail_count_ = 0;
                 try {
                     auto result = func(properties);
                     bool failed = false;
