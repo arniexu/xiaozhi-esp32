@@ -3,8 +3,6 @@
 #include <vector>
 #include "bmpfile.h"
 // 使用 ESP-IDF driver/jpeg_encode.h API
-#include "driver/jpeg_encode.h"
-#include "driver/jpeg_decode.h"
 #include <esp_log.h>
 #include <esp_err.h>
 #include <stdio.h>
