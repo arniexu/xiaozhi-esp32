@@ -28,7 +28,7 @@ set(SOURCES "audio/audio_codec.cc"
             "main.cc"
             )
 
-set(INCLUDE_DIRS "." "display" "audio" "protocols" "$ENV{IDF_PATH}/components/esp_driver_jpeg/include")
+set(INCLUDE_DIRS "." "display" "audio" "protocols")
 
 # 添加板级公共文件
 file(GLOB BOARD_COMMON_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/boards/common/*.cc)

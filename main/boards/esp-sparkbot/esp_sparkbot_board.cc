@@ -140,13 +140,17 @@ private:
         io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
         gpio_config(&io_conf);
 
-        // 创建定时器，周期性轮询红外传感器状态
+        // 任务1 使用红外传感器主动触发小智使其进入激活状态，播放提示音，进行人脸识别，主动向用户打招呼
+        // 任务1 步骤1 创建定时器，周期性轮询红外传感器状态
         const esp_timer_create_args_t timer_args = {
             .callback = [](void* arg) {
-                auto* app_ptr = static_cast<Application*>(arg);
-                auto& app = *app_ptr;
-                int ir_state = gpio_get_level((gpio_num_t)35);
-                ESP_LOGI(TAG, "IR Sensor(GPIO35) state: %d", ir_state);
+                auto& app = Application::GetInstance();
+                int ir_state = gpio_get_level((gpio_num_t)38);
+                // 如果当前设备已经被激活，则不处理红外传感器事件
+                if (app.GetDeviceState() == kDeviceStateActivating) {
+                    return;
+                }
+                ESP_LOGI(TAG, "IR Sensor(GPIO38) state: %d", ir_state);
                 // 可在此处添加进一步处理逻辑
                 if (ir_state == 0) {
                      // 发送wake up word detected事件
@@ -565,6 +569,7 @@ private:
         // MCP方法统一包装器，支持失败返回值也显示表情
         auto mcp_wrapper = [this](auto func) {
             return [this, func](const PropertyList& properties) -> ReturnValue {
+                auto mcp_fail_count_ = 0;
                 try {
                     auto result = func(properties);
                     bool failed = false;
