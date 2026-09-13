@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Xiaozhi Digital Human - Multi-character 320x240 Prototype v2</title>
+<style>
+*{letter-spacing:0;box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:#070908;
+  color:#D8D2C4;
+  font:14px/1.6 "PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC","Source Han Sans SC",sans-serif;
+}
+.page{max-width:430px;margin:0 auto;padding:20px 12px 48px}
+.pagehead h1{font-size:15px;font-weight:600;color:#F2EBDC;margin:0}
+.pagehead h1 span{font-weight:400;font-size:12px;color:#6B7670;margin-left:8px}
+.pagehead p{margin:4px 0 14px;font-size:12px;color:#6B7670}
+
+.shell{
+  background:#101514;
+  border:1px solid #1E2622;
+  border-radius:8px;
+  padding:12px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:10px;
+}
+.screen{
+  width:320px;
+  height:240px;
+  position:relative;
+  flex:none;
+  background:#0B0E0D;
+  border:1px solid #1A201D;
+  border-radius:6px;
+  overflow:hidden;
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+}
+#face{position:absolute;left:0;top:0;width:320px;height:240px;display:block}
+
+.statusbar{
+  position:absolute;top:0;left:0;right:0;height:20px;z-index:2;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 8px;
+  background:rgba(11,14,13,.88);
+  font-size:10px;color:#B9B2A2;
+}
+.clock{font-weight:600;font-variant-numeric:tabular-nums}
+.icons{display:flex;align-items:center;gap:7px}
+.wifi{position:relative;width:14px;height:10px;display:inline-block;color:#B9B2A2}
+.wifi i{
+  position:absolute;left:50%;top:100%;
+  transform:translate(-50%,-50%);
+  border:1.5px solid transparent;
+  border-top-color:currentColor;
+  border-radius:50%;
+}
+.wifi i:nth-child(1){width:13px;height:13px}
+.wifi i:nth-child(2){width:8px;height:8px}
+.wifi i:nth-child(3){width:3px;height:3px}
+.screen[data-state="connecting"] .wifi{animation:wifiBlink 1s steps(2,start) infinite}
+@keyframes wifiBlink{0%{opacity:1}50%{opacity:.25}100%{opacity:1}}
+.battery{
+  position:relative;width:16px;height:9px;
+  border:1.5px solid #B9B2A2;border-radius:2px;
+  display:inline-block;
+}
+.battery::after{
+  content:'';position:absolute;right:-4.5px;top:2px;
+  width:2px;height:3px;background:#B9B2A2;border-radius:0 1px 1px 0;
+}
+.battery b{
+  position:absolute;left:1px;top:1px;bottom:1px;
+  width:76%;background:#2FD3AE;border-radius:1px;display:block;
+}
+
+.footer{
+  position:absolute;left:0;right:0;bottom:0;height:22px;z-index:2;
+  display:flex;align-items:center;gap:6px;
+  padding:0 10px;
+  background:rgba(11,14,13,.9);
+  font-size:10px;
+}
+.dot{width:6px;height:6px;border-radius:50%;background:#F2EBDC;flex:none}
+.stlabel{font-weight:600;color:#F2EBDC;flex:none}
+.sthint{color:#6B7670;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+
+.charsel{display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
+.chbtn{
+  appearance:none;-webkit-appearance:none;
+  display:inline-flex;align-items:center;gap:6px;
+  border:1px solid #242C28;
+  border-bottom:2px solid transparent;
+  background:#141916;color:#B9B2A2;
+  font:inherit;font-size:11px;
+  padding:4px 9px;border-radius:6px;
+  cursor:pointer;
+}
+.chbtn:hover{color:#F2EBDC}
+.chbtn.active{color:#F2EBDC;border-color:#2A332E;border-bottom-color:var(--c,#F2EBDC)}
+.cdot{width:8px;height:8px;border-radius:50%;flex:none}
+
+.hintline{margin:0;font-size:11px;color:#6B7670;text-align:center}
+.controls{display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
+.stbtn{
+  appearance:none;-webkit-appearance:none;
+  border:1px solid #242C28;
+  border-bottom:2px solid transparent;
+  background:#141916;color:#B9B2A2;
+  font:inherit;font-size:11px;
+  padding:5px 10px;border-radius:6px;
+  cursor:pointer;
+}
+.stbtn:hover{color:#F2EBDC}
+.stbtn.active{color:#F2EBDC;border-color:#2A332E;border-bottom-color:var(--c,#F2EBDC)}
+.stbtn.auto[aria-pressed="true"]{color:#E7D24C;border-bottom-color:#E7D24C}
+
+.rationale{margin-top:20px;border-top:1px solid #1E2622;padding-top:12px}
+.rationale h2{font-size:13px;color:#F2EBDC;margin:0 0 6px}
+.rationale p{margin:6px 0;font-size:12px;color:#9AA398}
+.rationale ul{margin:6px 0;padding-left:18px}
+.rationale li{font-size:12px;color:#9AA398;margin:3px 0}
+.rationale code{color:#E7D24C;font-size:11px}
+
+@media (max-width:360px){
+  .page{padding:12px 4px 32px}
+  .shell{padding:8px 6px}
+}
+@media (prefers-reduced-motion: reduce){
+  *{animation:none !important;transition:none !important}
+}
+</style>
+</head>
+<body>
+<main class="page">
+  <header class="pagehead">
+    <h1>Xiaozhi Digital Human <span>v2 - Multi-character - ST7789 320&#215;240 landscape</span></h1>
+    <p>Interactive review prototype. Pick a character above the state buttons; the framed area renders at exactly 320&#215;240 CSS pixels, same as the target device.</p>
+  </header>
+
+  <section class="shell" aria-label="Device preview">
+    <div class="screen" id="screen" data-state="idle" role="img" aria-label="Device screen preview, tap to cycle states">
+      <canvas id="face" width="320" height="240"></canvas>
+      <div class="statusbar">
+        <span class="clock" id="clock">09:41</span>
+        <span class="icons">
+          <span class="wifi" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="battery" aria-hidden="true"><b></b></span>
+        </span>
+      </div>
+      <div class="footer">
+        <span class="dot" id="stDot"></span>
+        <span class="stlabel" id="stLabel"></span>
+        <span class="sthint" id="stHint"></span>
+      </div>
+    </div>
+    <div class="charsel" id="charsel" role="group" aria-label="Character selector"></div>
+    <p class="hintline">Tap the screen to cycle states (character stays) - or pick a state below</p>
+    <div class="controls" id="controls"></div>
+    <div class="controls">
+      <button type="button" class="stbtn auto" id="autoBtn" aria-pressed="true">Auto</button>
+    </div>
+  </section>
+
+  <section class="rationale">
+    <h2>Design Rationale</h2>
+    <p><strong>Fit for 320&#215;240.</strong> The layout is a fixed three-band hierarchy: a 20px status strip (time, Wi-Fi, battery only), a ~196px face zone that owns roughly 80% of the screen, and a 22px single-line footer for state label plus one transcript hint. Nothing else competes with the character, which keeps the UI glanceable at arm's length on a small ST7789 panel.</p>
+    <p><strong>The default digital human (&#x5149;&#x6838; Light Core).</strong> It is built from three abstract layers rendered on one Canvas: a soft radial light field (the "aura"), two glowing capsule eyes with an inner core and highlight (the identity), and a voice element below them (waveform when speaking, level bars when listening, a quiet smile arc at rest). It is deliberately not a photo and not an emoji; the capsule-pair silhouette plus aura is the recognizable product mark. The other four characters reuse the same frame pipeline (state interpolation, blink, reduced-motion) with their own silhouette, face language and state motion.</p>
+    <p><strong>Motion is semantics, not decoration.</strong> Idle breathes and blinks; listening shows input level cues; thinking drifts the gaze or orbiting dots; speaking drives a voice element; connecting sweeps an arc and blinks the Wi-Fi icon; upgrading reports progress with a percent readout; error collapses the eyes, adds jitter and glitch accents. All animation stops under <code>prefers-reduced-motion</code>, which renders one static representative frame per state.</p>
+    <p><strong>LVGL mapping.</strong> Status strip = one <code>lv_obj</code> flex row with <code>lv_label</code> + two drawn icons; face zone = a single <code>lv_canvas</code> (320&#215;196, RGB565) or a custom draw callback driven by a 30fps <code>lv_timer</code>, using the same primitives (rounded rects, arcs, polygons, radial gradient approximated by layered fills); footer = one <code>lv_label</code> with <code>LV_LABEL_LONG_SCROLL</code> as fallback; the palette maps 1:1 to <code>lv_color_hex</code> constants; states map to a <code>ui_state_t</code> enum with a dispatch table, and characters map to a <code>ui_character_t</code> table of draw callbacks - the centralized <code>STATES</code> and <code>CHARACTERS</code> data in this file is the direct template for those tables. Reduced-motion maps to a build-time flag that freezes the timer.</p>
+    <p><strong>Constraints honored.</strong> Near-black base with warm white, teal, coral red and a small lemon accent; no purple gradients, no glassmorphism; corner radius &lt;= 8px everywhere; <code>letter-spacing: 0</code>; local CJK font stack only; zero external assets, fonts, images or SVG.</p>
+  </section>
+
+  <section class="rationale">
+    <h2>Character Directions</h2>
+    <p>Five original abstract directions, distilled from 2025 market-preference research: young users value emotional resonance, self-reward (&#x60A6;&#x5DF1;), individuality and domestic original IP; young professionals prefer light, healing companions while mildly rebellious, curious "not-so-well-behaved" traits are rising; AI companion hardware needs a sustained sense of interaction, so every direction animates all seven states.</p>
+    <ul>
+      <li><strong>&#x5149;&#x6838; Light Core</strong> - calm, neutral tech companion; emotional value: quiet trust, reliability, focus. LVGL complexity: medium - radial glow approximated by layered fills, capsule eyes are rounded rects, one waveform polyline.</li>
+      <li><strong>&#x4E91;&#x56E2; Cloud Puff</strong> - soft healing direction for stressed young professionals; a squashy abstract cloud (not any concrete animal) that comforts through breath and lean. LVGL complexity: low - circle fills, one capsule base, arcs and short strokes only.</li>
+      <li><strong>&#x7535;&#x6CE2;&#x8C46; Wave Bean</strong> - playful little rebel for individuality and self-expression; asymmetric winking face, antenna spark, zigzag mouth. LVGL complexity: low-medium - one ellipse body, lines, small cross sparks.</li>
+      <li><strong>&#x7CEF;&#x7C73;&#x56E2; Mochi Blob</strong> - food-mimic softness and self-reward; emotion reads purely through squish, stretch and bounce of one blob. LVGL complexity: low - a single ellipse with animated radii plus dots and arcs.</li>
+      <li><strong>&#x5C71;&#x7075; Mountain Spirit</strong> - modern Chinese-aesthetic original direction; layered abstract peaks, a small gold disc and drifting mist, no concrete mythological symbols. LVGL complexity: low - three polygon fills, strokes and one circle.</li>
+    </ul>
+    <p>All five are original trend explorations derived from abstract preference data. They do not depict, reference or imitate any existing copyrighted character or IP.</p>
+  </section>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var W = 320, H = 240, CX = 160, CY = 118;
+  var PAL = { bg: '#0B0E0D', white: '#F2EBDC', track: 'rgba(240,235,220,0.08)' };
+
+  var STATES = {
+    idle:       { label: '待命', hint: '轻点画布切换状态', field: '#F2EBDC', eye: '#F2EBDC' },
+    listening:  { label: '聆听', hint: '正在聆听', field: '#2FD3AE', eye: '#2FD3AE' },
+    thinking:   { label: '思考', hint: '让我想想', field: '#F2EBDC', eye: '#F2EBDC', accent: '#E7D24C' },
+    speaking:   { label: '说话', hint: '你好，我是小智', field: '#2FD3AE', eye: '#F2EBDC' },
+    connecting: { label: '连接', hint: '正在连接服务器', field: '#E7D24C', eye: '#E7D24C' },
+    upgrading:  { label: '升级', hint: '固件升级中，请勿断电', field: '#E7D24C', eye: '#E7D24C' },
+    error:      { label: '错误', hint: '网络异常，请稍后重试', field: '#FF6A5A', eye: '#FF6A5A' }
+  };
+  var ORDER = ['idle', 'listening', 'thinking', 'speaking', 'connecting', 'upgrading', 'error'];
+
+  var EYES = {
+    idle:       { open: 1.00, dy: 0,  w: 30, h: 38, gap: 86 },
+    listening:  { open: 1.14, dy: -2, w: 32, h: 42, gap: 88 },
+    thinking:   { open: 0.92, dy: -3, w: 30, h: 36, gap: 86 },
+    speaking:   { open: 0.96, dy: 1,  w: 30, h: 38, gap: 86 },
+    connecting: { open: 1.00, dy: 0,  w: 28, h: 36, gap: 84 },
+    upgrading:  { open: 0.85, dy: 2,  w: 30, h: 34, gap: 86 },
+    error:      { open: 0.34, dy: 1,  w: 30, h: 34, gap: 88 }
+  };
+
+  var CHARACTERS = {
+    guanghe:   { name: '光核', en: 'Light Core',       col: '#F2EBDC', draw: drawGuanghe },
+    yuntuan:   { name: '云团', en: 'Cloud Puff',       col: '#EDE6D6', draw: drawYuntuan },
+    dianbodou: { name: '电波豆', en: 'Wave Bean',       col: '#3AE0C0', draw: drawDianbodou },
+    nuomituan: { name: '糯米团', en: 'Mochi Blob',      col: '#F1E3D6', draw: drawNuomituan },
+    shanling:  { name: '山灵', en: 'Mountain Spirit',  col: '#79A98C', draw: drawShanling }
+  };
+  var CHAR_ORDER = ['guanghe', 'yuntuan', 'dianbodou', 'nuomituan', 'shanling'];
+
+  var screen = document.getElementById('screen');
+  var canvas = document.getElementById('face');
+  var ctx = canvas.getContext('2d');
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  var RM = false;
+  try { RM = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { RM = false; }
+
+  var state = 'idle';
+  var charKey = 'guanghe';
+  var cur = { open: 1, dy: 0, w: 30, h: 38, gap: 86 };
+  var curField = hex('#F2EBDC');
+  var curEye = hex('#F2EBDC');
+  var curBody = hex('#F2EBDC');
+  var nextBlink = 2200;
+  var blinkStart = -1000;
+
+  function hex(s) {
+    return [parseInt(s.slice(1, 3), 16), parseInt(s.slice(3, 5), 16), parseInt(s.slice(5, 7), 16)];
+  }
+  function rgba(c, a) {
+    return 'rgba(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ',' + a + ')';
+  }
+  function mix(a, b, k) {
+    return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+  }
+  function circle(x, y, r) {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+  }
+  function ell(x, y, rx, ry, rot) {
+    ctx.beginPath();
+    ctx.ellipse(x, y, rx, ry, rot || 0, 0, Math.PI * 2);
+  }
+
+  function capsule(x, y, w, h) {
+    var r = Math.min(w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x - w / 2 + r, y - h / 2);
+    ctx.lineTo(x + w / 2 - r, y - h / 2);
+    ctx.arc(x + w / 2 - r, y - h / 2 + r, r, -Math.PI / 2, Math.PI / 2);
+    ctx.lineTo(x - w / 2 + r, y + h / 2);
+    ctx.arc(x - w / 2 + r, y - h / 2 + r, r, Math.PI / 2, Math.PI * 1.5);
+    ctx.closePath();
+  }
+
+  function aura(sig, strength, radius) {
+    var g = ctx.createRadialGradient(CX, CY, 8, CX, CY, radius || 86);
+    g.addColorStop(0, rgba(sig, strength));
+    g.addColorStop(1, rgba(sig, 0));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  function sweepArc(t, col, r) {
+    var rr = r || 60;
+    var a0 = RM ? 0.6 : t * 2.2;
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = PAL.track;
+    ctx.beginPath();
+    ctx.arc(CX, CY, rr, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.lineWidth = 2.4;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = rgba(col, 0.9);
+    ctx.beginPath();
+    ctx.arc(CX, CY, rr, a0, a0 + 1.5);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(CX, CY, rr, a0 + Math.PI, a0 + Math.PI + 0.5);
+    ctx.stroke();
+  }
+
+  function ringProgress(p, col) {
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(240,235,220,0.10)';
+    ctx.beginPath();
+    ctx.arc(CX, CY, 62, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = rgba(col, 0.95);
+    ctx.beginPath();
+    ctx.arc(CX, CY, 62, -Math.PI / 2, -Math.PI / 2 + p * Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = rgba(col, 0.9);
+    ctx.font = '600 10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(Math.round(p * 100) + '%', CX, CY + 84);
+  }
+
+  function drawEye(x, y, w, h, open, col, lx, ly, isError, side) {
+    ctx.save();
+    ctx.translate(x, y);
+    if (isError) {
+      ctx.strokeStyle = rgba(col, 0.95);
+      ctx.lineWidth = 6;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-13, -7 * side);
+      ctx.lineTo(13, 7 * side);
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+    var hh = Math.max(4, h * open);
+    ctx.fillStyle = rgba(col, 0.96);
+    capsule(0, 0, w, hh);
+    ctx.fill();
+    ctx.fillStyle = rgba(mix(col, [255, 255, 255], 0.55), 0.55);
+    capsule(lx * 0.35, ly * 0.35, w * 0.42, hh * 0.46);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.beginPath();
+    ctx.arc(lx * 0.35 - w * 0.08, -hh * 0.16, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawGuanghe(F) {
+    var t = F.t, st = F.st, c = F.cur;
+
+    var breath = F.RM ? 1 : 1 + 0.05 * Math.sin(t * 1.3);
+    var fr = 86 * breath;
+    if (st === 'listening' && !F.RM) fr = 92 + 8 * Math.sin(t * 5);
+    if (st === 'error' && !F.RM) fr = 78 + 5 * Math.sin(t * 9);
+    var g = ctx.createRadialGradient(CX, CY, 10, CX, CY, fr);
+    g.addColorStop(0, rgba(F.signal, st === 'idle' ? 0.13 : 0.18));
+    g.addColorStop(1, rgba(F.signal, 0));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = PAL.track;
+    ctx.beginPath();
+    ctx.arc(CX, CY, 64, 0, Math.PI * 2);
+    ctx.stroke();
+
+    if (st === 'connecting') {
+      var a0 = F.RM ? 0.6 : t * 2.2;
+      ctx.lineWidth = 2.4;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = rgba(F.signal, 0.9);
+      ctx.beginPath();
+      ctx.arc(CX, CY, 64, a0, a0 + 1.5);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(CX, CY, 64, a0 + Math.PI, a0 + Math.PI + 0.5);
+      ctx.stroke();
+    } else if (st === 'upgrading') {
+      var p = F.p;
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = rgba(F.signal, 0.95);
+      ctx.beginPath();
+      ctx.arc(CX, CY, 64, -Math.PI / 2, -Math.PI / 2 + p * Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = rgba(F.signal, 0.9);
+      ctx.font = '600 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(Math.round(p * 100) + '%', CX, CY + 86);
+    } else if (st === 'error') {
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = rgba(F.signal, F.glitch ? 0.5 : 0.25);
+      ctx.beginPath();
+      ctx.arc(CX, CY, 64, -0.4, 1.2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(CX, CY, 64, Math.PI - 0.4, Math.PI + 1.2);
+      ctx.stroke();
+    }
+
+    var ey = CY + c.dy - 4;
+    var isErr = (st === 'error');
+    drawEye(CX - c.gap / 2 + F.lx, ey + F.ly, c.w, c.h, F.open, F.eyeCol, F.lx, F.ly, isErr, 1);
+    drawEye(CX + c.gap / 2 + F.lx, ey + F.ly, c.w, c.h, F.open, F.eyeCol, F.lx, F.ly, isErr, -1);
+
+    var my = CY + 62;
+    if (st === 'speaking') {
+      ctx.strokeStyle = rgba(F.signal, 0.9);
+      ctx.lineWidth = 2.4;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      for (var x = -44; x <= 44; x += 4) {
+        var amp = F.RM ? 6 : (3 + 9 * Math.abs(Math.sin(t * 6 + x * 0.14)) * (0.4 + 0.6 * Math.abs(Math.sin(t * 2.3 + x * 0.05))));
+        var yy = my - amp * Math.sin(x * 0.32);
+        if (x === -44) ctx.moveTo(CX + x, yy); else ctx.lineTo(CX + x, yy);
+      }
+      ctx.stroke();
+    } else if (st === 'listening') {
+      ctx.lineWidth = 4;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = rgba(F.signal, 0.9);
+      for (var i = 0; i < 7; i++) {
+        var bx = CX + (i - 3) * 11;
+        var bh = F.RM ? 6 : (5 + 8 * Math.abs(Math.sin(t * 6.5 + i * 1.7)));
+        ctx.beginPath();
+        ctx.moveTo(bx, my - bh / 2);
+        ctx.lineTo(bx, my + bh / 2);
+        ctx.stroke();
+      }
+    } else if (st === 'idle' || st === 'thinking') {
+      ctx.strokeStyle = rgba(F.eyeCol, 0.4);
+      ctx.lineWidth = 1.6;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(CX, my - 6, 9, Math.PI * 0.25, Math.PI * 0.75);
+      ctx.stroke();
+    } else if (st === 'error') {
+      ctx.strokeStyle = rgba(F.signal, 0.8);
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(CX - 10, my);
+      ctx.lineTo(CX - 3, my - 3);
+      ctx.lineTo(CX + 3, my + 3);
+      ctx.lineTo(CX + 10, my);
+      ctx.stroke();
+    }
+
+    if (st === 'thinking') {
+      for (var d = 0; d < 3; d++) {
+        var al = F.RM ? 0.5 : 0.25 + 0.55 * Math.abs(Math.sin(t * 2 - d * 0.9));
+        ctx.fillStyle = rgba(F.accent, al);
+        ctx.beginPath();
+        ctx.arc(CX + 52 + d * 10, CY - 46, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    if (st === 'error' && F.glitch) {
+      ctx.fillStyle = rgba(F.signal, 0.22);
+      for (var n = 0; n < 3; n++) {
+        ctx.fillRect(Math.random() * W, Math.random() * H, 20 + Math.random() * 40, 1.5);
+      }
+    }
+  }
+
+  function drawYuntuan(F) {
+    var t = F.t, st = F.st, sig = F.signal, body = F.body;
+    var dark = [58, 68, 62];
+    aura(sig, 0.10, 88);
+
+    var sq = F.RM ? 1 : 1 + 0.045 * Math.sin(t * 1.25);
+    if (st === 'listening' && !F.RM) sq = 1 + 0.05 * Math.sin(t * 4.5);
+    if (st === 'error') sq = 0.84;
+    var lean = 0;
+    if (st === 'thinking' && !F.RM) lean = 0.05 * Math.sin(t * 0.9);
+    if (st === 'connecting' && !F.RM) lean = 0.06 * Math.sin(t * 3);
+
+    ctx.save();
+    ctx.translate(CX, CY + 6);
+    ctx.rotate(lean);
+    ctx.scale(1, sq);
+
+    ctx.fillStyle = rgba(body, 0.97);
+    var bumps = [[-46, 8, 19], [-24, -9, 26], [4, -15, 30], [32, -7, 25], [48, 10, 16]];
+    for (var i = 0; i < bumps.length; i++) {
+      circle(bumps[i][0], bumps[i][1], bumps[i][2]);
+      ctx.fill();
+    }
+    capsule(0, 14, 100, 30);
+    ctx.fill();
+
+    ctx.fillStyle = rgba(mix(body, [110, 128, 118], 0.30), 0.35);
+    capsule(0, 20, 90, 16);
+    ctx.fill();
+
+    ctx.fillStyle = rgba([232, 179, 154], st === 'error' ? 0.2 : 0.5);
+    circle(-31, 10, 5); ctx.fill();
+    circle(31, 10, 5); ctx.fill();
+
+    var ey = -2, ex = 15;
+    if (st === 'listening' || st === 'connecting' || st === 'upgrading') {
+      ctx.fillStyle = rgba(dark, 0.95);
+      var ro = Math.max(1.4, 3.4 * F.open);
+      circle(-ex, ey, ro); ctx.fill();
+      circle(ex, ey, ro); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      circle(-ex - 1, ey - 1.2, 1); ctx.fill();
+      circle(ex - 1, ey - 1.2, 1); ctx.fill();
+    } else if (st === 'error') {
+      ctx.strokeStyle = rgba(dark, 0.9);
+      ctx.lineWidth = 2.2;
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(-ex - 4, ey - 3); ctx.lineTo(-ex + 4, ey + 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ex - 4, ey + 2); ctx.lineTo(ex + 4, ey - 3); ctx.stroke();
+    } else {
+      ctx.strokeStyle = rgba(dark, 0.9);
+      ctx.lineWidth = 2.4;
+      ctx.lineCap = 'round';
+      var rr = Math.max(2, 5 * F.open);
+      ctx.beginPath(); ctx.arc(-ex, ey + 1, rr, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke();
+      ctx.beginPath(); ctx.arc(ex, ey + 1, rr, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke();
+    }
+
+    var my = 13;
+    if (st === 'speaking') {
+      var mh = F.RM ? 3.5 : 2.5 + 3.5 * Math.abs(Math.sin(t * 7));
+      ctx.fillStyle = rgba(dark, 0.9);
+      ell(0, my, 4.5, mh); ctx.fill();
+    } else if (st === 'error') {
+      ctx.strokeStyle = rgba(dark, 0.85);
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-7, my);
+      ctx.quadraticCurveTo(-3.5, my - 3, 0, my);
+      ctx.quadraticCurveTo(3.5, my + 3, 7, my);
+      ctx.stroke();
+    } else if (st === 'thinking') {
+      ctx.strokeStyle = rgba(dark, 0.7);
+      ctx.lineWidth = 1.8;
+      circle(2, my, 2.2); ctx.stroke();
+    } else {
+      ctx.strokeStyle = rgba(dark, 0.8);
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.arc(0, my - 2, 5, Math.PI * 0.25, Math.PI * 0.75); ctx.stroke();
+    }
+    ctx.restore();
+
+    if (st === 'thinking') {
+      for (var d = 0; d < 3; d++) {
+        var al = F.RM ? 0.5 : 0.2 + 0.5 * Math.abs(Math.sin(t * 1.6 - d * 0.8));
+        ctx.fillStyle = rgba(body, al);
+        circle(CX + 36 + d * 11, CY - 34 - d * 7, 4.5 - d);
+        ctx.fill();
+      }
+    } else if (st === 'listening') {
+      ctx.strokeStyle = rgba(sig, 0.85);
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      for (var a = 0; a < 3; a++) {
+        var ra = 58 + a * 9 + (F.RM ? 0 : 2 * Math.sin(t * 5 + a));
+        ctx.beginPath(); ctx.arc(CX, CY + 6, ra, -0.5, 0.5); ctx.stroke();
+      }
+    } else if (st === 'connecting') {
+      var ang = F.RM ? 0.8 : t * 2.4;
+      ctx.fillStyle = rgba(body, 0.9);
+      circle(CX + Math.cos(ang) * 58, CY + 6 + Math.sin(ang) * 34, 7);
+      ctx.fill();
+      ctx.strokeStyle = rgba(sig, 0.8);
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.arc(CX, CY + 6, 58, ang + 0.6, ang + 1.4); ctx.stroke();
+    } else if (st === 'upgrading') {
+      ringProgress(F.p, sig);
+    } else if (st === 'error') {
+      ctx.strokeStyle = rgba(sig, 0.7);
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      for (var r2 = 0; r2 < 3; r2++) {
+        var rx2 = CX - 26 + r2 * 26;
+        var ry2 = CY + 46 + (F.RM ? 0 : 6 * Math.sin(t * 3 + r2 * 2));
+        ctx.beginPath(); ctx.moveTo(rx2 - 2, ry2 - 4); ctx.lineTo(rx2 + 2, ry2 + 4); ctx.stroke();
+      }
+    }
+  }
+
+  function drawDianbodou(F) {
+    var t = F.t, st = F.st, sig = F.signal, body = F.body;
+    var dark = [10, 40, 34];
+    var lime = [211, 242, 78];
+    aura(sig, 0.12, 84);
+
+    var hop = 0;
+    if (!F.RM) {
+      if (st === 'idle' || st === 'speaking') hop = -Math.abs(Math.sin(t * 3.4)) * 6;
+      else if (st === 'listening') hop = -2 + 1.5 * Math.sin(t * 6);
+    }
+    if (st === 'error') hop = 2;
+    var tilt = -0.06;
+    if (!F.RM && st === 'thinking') tilt += 0.14 * Math.sin(t * 1.4);
+    if (st === 'listening') tilt -= 0.08;
+
+    ctx.save();
+    ctx.translate(CX, CY + 2 + hop);
+    ctx.rotate(tilt);
+
+    ctx.strokeStyle = rgba(body, 0.9);
+    ctx.lineWidth = 2.4;
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(10, -30); ctx.lineTo(20, -50); ctx.stroke();
+    var pulse = (st === 'listening' && !F.RM) ? 1 + 0.35 * Math.sin(t * 6) : 1;
+    ctx.fillStyle = rgba(lime, 0.95);
+    circle(20, -50, 4.5 * pulse); ctx.fill();
+
+    ctx.fillStyle = rgba(body, 0.96);
+    ell(0, 0, 46, 33, 0.1); ctx.fill();
+    ctx.fillStyle = rgba(mix(body, [255, 255, 255], 0.35), 0.30);
+    ell(-8, -9, 30, 16, 0.1); ctx.fill();
+
+    var eyY = -6;
+    if (st === 'error') {
+      ctx.strokeStyle = rgba(dark, 0.95);
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(-24, eyY - 4); ctx.lineTo(-10, eyY + 1); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(24, eyY - 4); ctx.lineTo(10, eyY + 1); ctx.stroke();
+    } else {
+      var o2 = (st === 'listening' || st === 'speaking') ? F.open : F.open * 0.45;
+      ctx.fillStyle = rgba(dark, 0.95);
+      capsule(-15, eyY, 9, Math.max(3, 15 * F.open)); ctx.fill();
+      capsule(15, eyY + 1, 9, Math.max(2.5, 15 * o2)); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      circle(-17, eyY - 4 * F.open, 1.4); ctx.fill();
+    }
+
+    var myY = 12;
+    ctx.strokeStyle = rgba(dark, 0.9);
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    if (st === 'speaking') {
+      var amp = F.RM ? 3 : 2 + 3 * Math.abs(Math.sin(t * 8));
+      var pts = [-12, -7, -2, 3, 8, 13];
+      ctx.beginPath();
+      ctx.moveTo(pts[0], myY);
+      for (var zi = 1; zi < pts.length; zi++) {
+        ctx.lineTo(pts[zi], myY + (zi % 2 ? amp : -amp));
+      }
+      ctx.stroke();
+    } else if (st === 'error') {
+      ctx.beginPath(); ctx.moveTo(-9, myY + 2); ctx.lineTo(9, myY + 2); ctx.stroke();
+    } else if (st === 'thinking') {
+      ctx.beginPath(); ctx.moveTo(-8, myY); ctx.quadraticCurveTo(2, myY + 6, 11, myY - 2); ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.moveTo(-9, myY);
+      ctx.lineTo(-4, myY - 3); ctx.lineTo(1, myY); ctx.lineTo(6, myY - 3); ctx.lineTo(11, myY);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    if (st === 'listening') {
+      ctx.strokeStyle = rgba(sig, 0.7);
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      for (var a = 0; a < 2; a++) {
+        ctx.beginPath(); ctx.arc(CX, CY + 2, 56 + a * 9, -2.4, -1.9); ctx.stroke();
+      }
+    } else if (st === 'thinking') {
+      var ang = F.RM ? 1 : t * 2.6;
+      var sx = CX + 20 + Math.cos(ang) * 10, sy = CY - 48 + Math.sin(ang) * 6;
+      ctx.strokeStyle = rgba(lime, 0.9);
+      ctx.lineWidth = 1.8;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(sx - 3, sy); ctx.lineTo(sx + 3, sy);
+      ctx.moveTo(sx, sy - 3); ctx.lineTo(sx, sy + 3);
+      ctx.stroke();
+    } else if (st === 'connecting') {
+      sweepArc(t, sig, 60);
+    } else if (st === 'upgrading') {
+      ringProgress(F.p, sig);
+      ctx.fillStyle = rgba(lime, 0.9);
+      ctx.beginPath();
+      ctx.moveTo(CX + 46, CY - 52);
+      ctx.lineTo(CX + 39, CY - 40);
+      ctx.lineTo(CX + 44, CY - 40);
+      ctx.lineTo(CX + 42, CY - 30);
+      ctx.lineTo(CX + 51, CY - 43);
+      ctx.lineTo(CX + 46, CY - 43);
+      ctx.closePath();
+      ctx.fill();
+    } else if (st === 'error') {
+      ctx.strokeStyle = rgba(lime, F.glitch ? 0.95 : 0.4);
+      ctx.lineWidth = 1.8;
+      ctx.lineCap = 'round';
+      for (var s2 = 0; s2 < 4; s2++) {
+        var px = CX - 60 + s2 * 40, py = CY - 40 + (s2 % 2) * 70;
+        ctx.beginPath();
+        ctx.moveTo(px - 3, py); ctx.lineTo(px + 3, py);
+        ctx.moveTo(px, py - 3); ctx.lineTo(px, py + 3);
+        ctx.stroke();
+      }
+    }
+  }
+
+  function drawNuomituan(F) {
+    var t = F.t, st = F.st, sig = F.signal, body = F.body;
+    var dark = [74, 59, 54];
+    var blush = [239, 176, 164];
+    aura(sig, 0.10, 84);
+
+    var rx = 46, ry = 35;
+    if (st === 'listening') { rx += 9; ry -= 8; }
+    else if (st === 'thinking') { rx -= 8; ry += 9; }
+    else if (st === 'error') { rx += 12; ry = 19; }
+    else if (st === 'upgrading') { rx += F.p * 6; ry += F.p * 8; }
+    if (!F.RM && st !== 'error') {
+      rx += 2 * Math.sin(t * 2.4);
+      ry += 2 * Math.sin(t * 2.4 + Math.PI);
+    }
+    var yoff = 0;
+    if (!F.RM && st === 'speaking') yoff = -Math.abs(Math.sin(t * 5)) * 5;
+    var xoff = 0;
+    if (!F.RM && st === 'connecting') xoff = 7 * Math.sin(t * 3);
+
+    var gy = 182 - ry + yoff;
+    ctx.save();
+    ctx.translate(CX + xoff, gy);
+
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ell(0, ry - 2, rx * 0.8, 5); ctx.fill();
+
+    ctx.fillStyle = rgba(body, 0.97);
+    ell(0, 0, rx, ry); ctx.fill();
+    ctx.fillStyle = rgba(mix(body, [190, 170, 160], 0.25), 0.4);
+    ell(0, ry * 0.35, rx * 0.85, ry * 0.5); ctx.fill();
+
+    ctx.fillStyle = rgba(blush, st === 'error' ? 0.25 : 0.65);
+    ell(-rx * 0.5, ry * 0.12, 6, 4); ctx.fill();
+    ell(rx * 0.5, ry * 0.12, 6, 4); ctx.fill();
+
+    var eyY = -ry * 0.18;
+    if (st === 'error') {
+      ctx.strokeStyle = rgba(dark, 0.9);
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.arc(-12, eyY + 3, 4, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
+      ctx.beginPath(); ctx.arc(12, eyY + 3, 4, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
+    } else {
+      ctx.fillStyle = rgba(dark, 0.95);
+      var ro = Math.max(1.2, 2.8 * F.open);
+      circle(-12, eyY, ro); ctx.fill();
+      circle(12, eyY, ro); ctx.fill();
+    }
+
+    var myY = ry * 0.22;
+    if (st === 'speaking') {
+      var mh = F.RM ? 3 : 2 + 3 * Math.abs(Math.sin(t * 6.5));
+      ctx.fillStyle = rgba(dark, 0.9);
+      ell(0, myY, 4, mh); ctx.fill();
+    } else if (st === 'listening') {
+      ctx.strokeStyle = rgba(dark, 0.85);
+      ctx.lineWidth = 1.8;
+      circle(0, myY, 2.6); ctx.stroke();
+    } else if (st === 'error') {
+      ctx.strokeStyle = rgba(dark, 0.85);
+      ctx.lineWidth = 1.8;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-7, myY);
+      ctx.quadraticCurveTo(-3.5, myY - 3, 0, myY);
+      ctx.quadraticCurveTo(3.5, myY + 3, 7, myY);
+      ctx.stroke();
+    } else if (st === 'thinking') {
+      ctx.strokeStyle = rgba(dark, 0.8);
+      ctx.lineWidth = 1.8;
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(-4, myY + 1); ctx.lineTo(5, myY - 1); ctx.stroke();
+    } else {
+      ctx.strokeStyle = rgba(dark, 0.85);
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.arc(0, myY - 1, 5, Math.PI * 0.25, Math.PI * 0.75); ctx.stroke();
+    }
+    ctx.restore();
+
+    if (st === 'thinking') {
+      for (var d = 0; d < 2; d++) {
+        var al = F.RM ? 0.5 : 0.2 + 0.5 * Math.abs(Math.sin(t * 1.8 - d));
+        ctx.fillStyle = rgba(body, al);
+        circle(CX + 4 + d * 8, 182 - ry - 18 - d * 9, 3.5 - d);
+        ctx.fill();
+      }
+    } else if (st === 'listening') {
+      ctx.strokeStyle = rgba(sig, 0.75);
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      for (var a = 0; a < 3; a++) {
+        ctx.beginPath(); ctx.arc(CX, 170, 60 + a * 9, -Math.PI / 2 - 0.35, -Math.PI / 2 + 0.35); ctx.stroke();
+      }
+    } else if (st === 'connecting') {
+      sweepArc(t, sig, 58);
+    } else if (st === 'upgrading') {
+      ringProgress(F.p, sig);
+    } else if (st === 'error') {
+      ctx.fillStyle = rgba(sig, 0.7);
+      ell(CX - rx * 0.9, 150, 2.5, 4); ctx.fill();
+      ell(CX + rx * 0.9, 146, 2.5, 4); ctx.fill();
+    }
+  }
+
+  function drawShanling(F) {
+    var t = F.t, st = F.st, sig = F.signal, body = F.body;
+    var back = mix(body, [0, 0, 0], 0.55);
+    var mid = mix(body, [0, 0, 0], 0.28);
+    var gold = [217, 180, 92];
+    var ink = [16, 24, 20];
+    aura(sig, 0.10, 90);
+
+    var bob1 = F.RM ? 0 : 2 * Math.sin(t * 1.1);
+    var bob2 = F.RM ? 0 : 2 * Math.sin(t * 1.1 + 2.1);
+    var bob3 = F.RM ? 0 : 1.6 * Math.sin(t * 1.1 + 4.2);
+    if (st === 'listening') { bob1 -= 4; bob2 -= 4; bob3 -= 4; }
+
+    var base = 182;
+
+    var dx = 224, dyy = 74;
+    if (st === 'thinking' && !F.RM) {
+      dx = 224 + 10 * Math.sin(t * 0.6);
+      dyy = 74 + 4 * Math.cos(t * 0.6);
+    }
+    ctx.fillStyle = rgba(gold, st === 'error' ? 0.35 : 0.9);
+    circle(dx, dyy, 11); ctx.fill();
+
+    function peak(x1, apexX, apexY, x2, yo, col) {
+      ctx.fillStyle = rgba(col, 0.96);
+      ctx.beginPath();
+      ctx.moveTo(x1, base + yo);
+      ctx.lineTo(apexX, apexY + yo);
+      ctx.lineTo(x2, base + yo);
+      ctx.closePath();
+      ctx.fill();
+    }
+    peak(72, 118, 86, 168, bob1, back);
+    peak(160, 208, 78, 256, bob2, mid);
+    peak(112, 160, 108, 208, bob3, body);
+
+    var eyY = 148 + bob3;
+    if (st === 'error') {
+      ctx.strokeStyle = rgba(ink, 0.9);
+      ctx.lineWidth = 2.4;
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(140, eyY - 3); ctx.lineTo(150, eyY + 1); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(180, eyY - 3); ctx.lineTo(170, eyY + 1); ctx.stroke();
+    } else if (st === 'listening' || st === 'connecting') {
+      ctx.fillStyle = rgba(ink, 0.9);
+      capsule(146, eyY, 4.5, Math.max(3, 9 * F.open)); ctx.fill();
+      capsule(174, eyY, 4.5, Math.max(3, 9 * F.open)); ctx.fill();
+    } else {
+      ctx.strokeStyle = rgba(ink, 0.9);
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      var wl = 5 * Math.max(0.4, F.open);
+      ctx.beginPath(); ctx.moveTo(146 - wl, eyY); ctx.lineTo(146 + wl, eyY); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(174 - wl, eyY); ctx.lineTo(174 + wl, eyY); ctx.stroke();
+    }
+
+    var mY = 160 + bob3;
+    if (st === 'speaking') {
+      var mo = F.RM ? 3 : 2 + 2.5 * Math.abs(Math.sin(t * 6));
+      ctx.fillStyle = rgba(ink, 0.85);
+      ell(160, mY, 3, mo); ctx.fill();
+    } else {
+      ctx.strokeStyle = rgba(ink, 0.8);
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      if (st === 'error') {
+        ctx.beginPath(); ctx.moveTo(155, mY + 1); ctx.lineTo(165, mY - 1); ctx.stroke();
+      } else if (st === 'thinking') {
+        ctx.beginPath(); ctx.moveTo(156, mY); ctx.lineTo(164, mY); ctx.stroke();
+      } else {
+        ctx.beginPath(); ctx.arc(160, mY - 2, 4, Math.PI * 0.3, Math.PI * 0.7); ctx.stroke();
+      }
+    }
+
+    ctx.strokeStyle = rgba(body, 0.25);
+    ctx.lineWidth = 1.6;
+    ctx.lineCap = 'round';
+    var moff = F.RM ? 0 : 14 * Math.sin(t * 0.5);
+    ctx.beginPath(); ctx.moveTo(70 + moff, 190); ctx.lineTo(160 + moff, 190); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(180 - moff, 196); ctx.lineTo(258 - moff, 196); ctx.stroke();
+
+    if (st === 'speaking') {
+      ctx.strokeStyle = rgba(sig, 0.6);
+      ctx.lineWidth = 1.8;
+      for (var a = 0; a < 2; a++) {
+        var ra = F.RM ? 14 : 10 + ((t * 20 + a * 10) % 20);
+        ctx.beginPath(); ctx.arc(160, 108 + bob3, ra, -0.9, -0.2); ctx.stroke();
+      }
+    } else if (st === 'thinking') {
+      var ang = F.RM ? 1 : t * 1.4;
+      ctx.fillStyle = rgba(gold, 0.8);
+      circle(dx + Math.cos(ang) * 18, dyy + Math.sin(ang) * 8, 2);
+      ctx.fill();
+    } else if (st === 'connecting') {
+      var a0 = F.RM ? 0.6 : t * 2.2;
+      ctx.strokeStyle = rgba(gold, 0.9);
+      ctx.lineWidth = 2.2;
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.arc(dx, dyy, 18, a0, a0 + 1.6); ctx.stroke();
+    } else if (st === 'upgrading') {
+      var p = F.p;
+      ctx.strokeStyle = rgba(gold, 0.95);
+      ctx.lineWidth = 2.6;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(112, base);
+      ctx.lineTo(112 + (160 - 112) * p, base + (108 - base) * p);
+      ctx.stroke();
+      ctx.fillStyle = rgba(gold, 0.9);
+      ctx.font = '600 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(Math.round(p * 100) + '%', CX, 204);
+    } else if (st === 'error') {
+      ctx.strokeStyle = rgba(sig, 0.85);
+      ctx.lineWidth = 1.8;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(163, 112 + bob3);
+      ctx.lineTo(157, 126 + bob3);
+      ctx.lineTo(166, 136 + bob3);
+      ctx.lineTo(159, 146 + bob3);
+      ctx.stroke();
+    }
+  }
+
+  function draw(now) {
+    var t = RM ? 0 : (now || 0) / 1000;
+    var s = STATES[state];
+    var eT = EYES[state];
+    var ch = CHARACTERS[charKey];
+    var k = 0.09;
+
+    cur.open += (eT.open - cur.open) * k;
+    cur.dy += (eT.dy - cur.dy) * k;
+    cur.w += (eT.w - cur.w) * k;
+    cur.h += (eT.h - cur.h) * k;
+    cur.gap += (eT.gap - cur.gap) * k;
+    curField = mix(curField, hex(s.field), k);
+    curEye = mix(curEye, hex(s.eye), k);
+    curBody = mix(curBody, hex(ch.col), k);
+
+    var bf = 1;
+    if (!RM && state !== 'error' && state !== 'upgrading') {
+      if (now > nextBlink) {
+        blinkStart = now;
+        nextBlink = now + 2200 + Math.random() * 2600;
+      }
+      var bs = (now - blinkStart) / 170;
+      if (bs >= 0 && bs < 1) bf = bs < 0.5 ? 1 - bs * 2 : (bs - 0.5) * 2;
+    }
+    var open = cur.open * bf;
+
+    var lx = 0, ly = 0;
+    if (state === 'thinking' && !RM) {
+      lx = 9 * Math.sin(t * 0.7);
+      ly = 3 * Math.sin(t * 0.43 + 1.2);
+    }
+    if (state === 'listening') ly = -2;
+
+    var ox = 0, glitch = false;
+    if (state === 'error' && !RM) {
+      glitch = (t % 1.3) < 0.16;
+      if (glitch) ox = (Math.random() - 0.5) * 6;
+    }
+
+    ctx.fillStyle = PAL.bg;
+    ctx.fillRect(0, 0, W, H);
+    ctx.save();
+    ctx.translate(ox, 0);
+
+    ch.draw({
+      t: t, RM: RM, st: state, p: RM ? 0.62 : ((t * 0.22) % 1),
+      open: open, cur: cur, lx: lx, ly: ly, glitch: glitch,
+      signal: curField, eyeCol: curEye, body: curBody,
+      accent: hex(s.accent || s.field)
+    });
+
+    ctx.restore();
+  }
+
+  var raf = 0;
+  function loop(now) {
+    draw(now);
+    raf = requestAnimationFrame(loop);
+  }
+  function kick() {
+    if (raf) { cancelAnimationFrame(raf); raf = 0; }
+    if (RM) { draw(0); } else { raf = requestAnimationFrame(loop); }
+  }
+
+  var stDot = document.getElementById('stDot');
+  var stLabel = document.getElementById('stLabel');
+  var stHint = document.getElementById('stHint');
+  var controls = document.getElementById('controls');
+  var btns = {};
+
+  ORDER.forEach(function (key) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'stbtn';
+    b.textContent = STATES[key].label;
+    b.style.setProperty('--c', STATES[key].field);
+    b.setAttribute('aria-pressed', 'false');
+    b.addEventListener('click', function () { setState(key); });
+    controls.appendChild(b);
+    btns[key] = b;
+  });
+
+  var charsel = document.getElementById('charsel');
+  var cbtns = {};
+
+  CHAR_ORDER.forEach(function (key) {
+    var c = CHARACTERS[key];
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'chbtn';
+    b.style.setProperty('--c', c.col);
+    b.title = c.en;
+    b.setAttribute('aria-pressed', 'false');
+    var dot = document.createElement('span');
+    dot.className = 'cdot';
+    dot.style.background = c.col;
+    b.appendChild(dot);
+    b.appendChild(document.createTextNode(c.name));
+    b.addEventListener('click', function () { setChar(key); });
+    charsel.appendChild(b);
+    cbtns[key] = b;
+  });
+
+  function setState(key) {
+    state = key;
+    var s = STATES[key];
+    screen.setAttribute('data-state', key);
+    stDot.style.background = s.field;
+    stLabel.style.color = s.field;
+    stLabel.textContent = s.label;
+    stHint.textContent = s.hint;
+    ORDER.forEach(function (k2) {
+      var on = (k2 === key);
+      btns[k2].classList.toggle('active', on);
+      btns[k2].setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    if (RM) draw(0);
+    restartAuto();
+  }
+
+  function setChar(key) {
+    charKey = key;
+    CHAR_ORDER.forEach(function (k2) {
+      var on = (k2 === key);
+      cbtns[k2].classList.toggle('active', on);
+      cbtns[k2].setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    if (RM) draw(0);
+  }
+
+  function next() {
+    var idx = ORDER.indexOf(state);
+    setState(ORDER[(idx + 1) % ORDER.length]);
+  }
+
+  var auto = true;
+  var timer = 0;
+  function restartAuto() {
+    if (timer) { clearInterval(timer); timer = 0; }
+    if (auto) timer = setInterval(next, 3800);
+  }
+
+  var autoBtn = document.getElementById('autoBtn');
+  autoBtn.addEventListener('click', function () {
+    auto = !auto;
+    autoBtn.setAttribute('aria-pressed', auto ? 'true' : 'false');
+    restartAuto();
+  });
+
+  screen.addEventListener('click', next);
+
+  function clock() {
+    var d = new Date();
+    var h = d.getHours(), m = d.getMinutes();
+    document.getElementById('clock').textContent = (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+  }
+  clock();
+  setInterval(clock, 15000);
+
+  setChar('guanghe');
+  setState('idle');
+  kick();
+})();
+</script>
+</body>
+</html>

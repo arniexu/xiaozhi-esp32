@@ -171,7 +171,7 @@ private:
 
     void InitializeTouch()
     {
-        esp_lcd_touch_handle_t tp;
+        esp_lcd_touch_handle_t tp = nullptr;
         esp_lcd_touch_config_t tp_cfg = {
             .x_max = DISPLAY_WIDTH,
             .y_max = DISPLAY_HEIGHT,
@@ -191,9 +191,21 @@ private:
         esp_lcd_panel_io_i2c_config_t tp_io_config = ESP_LCD_TOUCH_IO_I2C_FT5x06_CONFIG();
         tp_io_config.scl_speed_hz = 400000;
 
-        esp_lcd_new_panel_io_i2c(i2c_bus_, &tp_io_config, &tp_io_handle);
-        esp_lcd_touch_new_i2c_ft5x06(tp_io_handle, &tp_cfg, &tp);
-        assert(tp);
+        esp_err_t ret = esp_lcd_new_panel_io_i2c(i2c_bus_, &tp_io_config, &tp_io_handle);
+        if (ret != ESP_OK || tp_io_handle == nullptr) {
+            ESP_LOGW(TAG, "Failed to create touch panel IO (%s), continue without touch", esp_err_to_name(ret));
+            return;
+        }
+
+        ret = esp_lcd_touch_new_i2c_ft5x06(tp_io_handle, &tp_cfg, &tp);
+        if (ret != ESP_OK || tp == nullptr) {
+            ESP_LOGW(TAG, "FT5x06 touch not detected (%s), continue without touch", esp_err_to_name(ret));
+            if (tp != nullptr) {
+                esp_lcd_touch_del(tp);
+            }
+            esp_lcd_panel_io_del(tp_io_handle);
+            return;
+        }
 
         /* Add touch input (for selected screen) */
         const lvgl_port_touch_cfg_t touch_cfg = {
@@ -201,7 +213,9 @@ private:
             .handle = tp,
         };
 
-        lvgl_port_add_touch(&touch_cfg);
+        if (lvgl_port_add_touch(&touch_cfg) == nullptr) {
+            ESP_LOGW(TAG, "Failed to add touch to LVGL, continue without touch");
+        }
     }
 
     void InitializeCamera() {
